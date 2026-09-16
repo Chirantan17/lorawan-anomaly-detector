@@ -201,20 +201,31 @@ with tab3:
         st.subheader("Sample Payload Feature Vector")
         st.dataframe(sample_row[["device_id", "rssi", "snr", "sf", "inter_arrival_time", "fcnt"]], use_container_width=True)
         
-        if "shap_explainer" in bundle:
+        try:
             features = bundle["feature_names"]
-            X_sample = sample_row[features]
+            X_sample = sample_row[features].astype(float)
             
-            explainer = bundle["shap_explainer"]
-            shap_values = explainer(X_sample)
+            # Use tree_path_dependent perturbation to bypass XGBoost categorical split check
+            model = bundle["xgboost"]
+            explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+            shap_values = explainer.shap_values(X_sample)
+            
+            # Reconstruct Explanation object for waterfall rendering
+            base_val = explainer.expected_value[1] if isinstance(explainer.expected_value, (list, np.ndarray)) else explainer.expected_value
+            exp = shap.Explanation(
+                values=shap_values[0],
+                base_values=base_val,
+                data=X_sample.iloc[0].values,
+                feature_names=features
+            )
             
             st.subheader("Feature Impact Breakdown (Waterfall Plot)")
             fig, ax = plt.subplots(figsize=(8, 3.5))
-            shap.plots.waterfall(shap_values[0], show=False)
+            shap.plots.waterfall(exp, show=False)
             plt.tight_layout()
             st.pyplot(fig)
-        else:
-            st.warning("SHAP explainer not found in model bundle. Re-run `python src/train.py`.")
+        except Exception as e:
+            st.error(f"SHAP explanation error: {e}")
 
 # TAB 4: MODEL BENCHMARKS
 with tab4:
