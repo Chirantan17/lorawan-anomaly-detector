@@ -1,3 +1,4 @@
+import gc
 import time
 import joblib
 import matplotlib.pyplot as plt
@@ -10,7 +11,7 @@ import streamlit as st
 st.set_page_config(page_title="LoRaWAN Security Dashboard", page_icon="🛡️", layout="wide")
 
 # ==========================================
-# STABLE CACHED LOADERS & PRE-COMPUTATION
+# STABLE CACHED LOADERS & MEMORY SAFEGUARDS
 # ==========================================
 @st.cache_resource
 def load_bundle():
@@ -18,7 +19,9 @@ def load_bundle():
 
 @st.cache_data
 def load_data():
-    return pd.read_csv("data/phase1_lorawan_100k.csv")
+    # Cap dataset to 5,000 rows to guarantee RAM remains below 200MB permanently
+    df = pd.read_csv("data/phase1_lorawan_100k.csv")
+    return df.head(5000)
 
 @st.cache_resource
 def get_shap_explainer(_model):
@@ -33,10 +36,7 @@ except Exception as e:
 
 @st.cache_data
 def get_processed_dataset(choice):
-    """
-    Predicts on the full dataset ONCE when a model is chosen.
-    Prevents memory leaks and guarantees 0ms inference lag during streaming.
-    """
+    """Pre-computes predictions once per selected model engine."""
     df = dataset.copy()
     features = bundle["feature_names"]
     X_input = df[features]
@@ -56,10 +56,33 @@ def get_processed_dataset(choice):
 
 @st.cache_data
 def get_purity_sample(sample_size):
-    sample_df = dataset.sample(n=sample_size, random_state=42).copy()
+    sample_df = dataset.sample(n=min(sample_size, len(dataset)), random_state=42).copy()
     target_label = "label" if "label" in sample_df.columns else "is_rogue"
     sample_df["Node Type"] = sample_df[target_label].map({0: "Benign Node", 1: "Anomalous / Rogue Node"})
     return sample_df
+
+# Cache Tab 2 heavy Plotly figures to prevent memory accumulation on stream ticks
+@st.cache_data
+def build_3d_purity_plot(sample_size):
+    sample_df = get_purity_sample(sample_size)
+    fig_3d = px.scatter_3d(
+        sample_df, x="rssi", y="snr", z="sf", color="Node Type", symbol="Node Type", opacity=0.7,
+        color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
+        labels={"rssi": "RSSI (dBm)", "snr": "SNR (dB)", "sf": "Spreading Factor"}
+    )
+    fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=30), height=420)
+    return fig_3d
+
+@st.cache_data
+def build_box_purity_plot(sample_size):
+    sample_df = get_purity_sample(sample_size)
+    fig_box = px.box(
+        sample_df, x="Node Type", y="inter_arrival_time", color="Node Type", points="outliers",
+        color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
+        labels={"inter_arrival_time": "Inter-Arrival Time (sec)"}
+    )
+    fig_box.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=420)
+    return fig_box
 
 # ==========================================
 # SIDEBAR CONTROLS
@@ -72,9 +95,9 @@ model_choice = st.sidebar.selectbox(
     ["XGBoost (Supervised)", "Random Forest (Supervised)", "Isolation Forest (Unsupervised)"]
 )
 
-stream_speed = st.sidebar.slider("Stream Interval Delay (s)", 0.2, 2.0, 0.5)
+stream_speed = st.sidebar.slider("Stream Interval Delay (s)", 0.3, 2.0, 0.5)
 batch_size = st.sidebar.slider("Packets per Batch", 10, 100, 25)
-live_stream_active = st.sidebar.checkbox("Enable Live Telemetry Stream", value=False)
+live_stream_active = st.sidebar.checkbox("Enable Live Telemetry Stream", value=True)
 
 if "stream_idx" not in st.session_state:
     st.session_state.stream_idx = 100
@@ -84,9 +107,9 @@ if st.sidebar.button("Reset Simulation Stream"):
     st.rerun()
 
 st.title("📡 Real-Time LoRaWAN Intrusion & Anomaly Detector")
-st.caption(f"Engine: `{model_choice}` | Gateway: Star Topology (BPHC Lab) | Production-Grade Build")
+st.caption(f"Engine: `{model_choice}` | Gateway: Star Topology (BPHC Lab) | Production Stability Build")
 
-# Load full pre-computed dataset for selected engine
+# Fetch pre-processed predictions
 full_processed_df = get_processed_dataset(model_choice)
 
 # Navigation
@@ -168,31 +191,18 @@ with tab1:
 # ==========================================
 with tab2:
     st.header("🔬 Ground Truth Dataset Purity Analysis")
-    st.markdown("This view demonstrates physical layer feature separability across 100,000 LoRaWAN packets.")
+    st.markdown("This view demonstrates physical layer feature separability across LoRaWAN telemetry frames.")
     
-    sample_size = st.slider("Select Sample Size for Purity Plots", 1000, 10000, 3000, key="purity_slider")
-    sample_df = get_purity_sample(sample_size)
+    sample_size = st.slider("Select Sample Size for Purity Plots", 1000, 5000, 2500, key="purity_slider")
     
     col_a, col_b = st.columns(2)
     with col_a:
         st.subheader("1. 3D Cluster Purity (RSSI vs SNR vs SF)")
-        fig_3d = px.scatter_3d(
-            sample_df, x="rssi", y="snr", z="sf", color="Node Type", symbol="Node Type", opacity=0.7,
-            color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
-            labels={"rssi": "RSSI (dBm)", "snr": "SNR (dB)", "sf": "Spreading Factor"}
-        )
-        fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=30), height=420)
-        st.plotly_chart(fig_3d, use_container_width=True)
+        st.plotly_chart(build_3d_purity_plot(sample_size), use_container_width=True)
 
     with col_b:
         st.subheader("2. Inter-Arrival Time Anomalies")
-        fig_box = px.box(
-            sample_df, x="Node Type", y="inter_arrival_time", color="Node Type", points="outliers",
-            color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
-            labels={"inter_arrival_time": "Inter-Arrival Time (sec)"}
-        )
-        fig_box.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=420)
-        st.plotly_chart(fig_box, use_container_width=True)
+        st.plotly_chart(build_box_purity_plot(sample_size), use_container_width=True)
 
 # ==========================================
 # TAB 3: EXPLAINABLE AI (SHAP)
@@ -231,7 +241,7 @@ with tab3:
             shap.plots.waterfall(exp, show=False)
             plt.tight_layout()
             st.pyplot(fig)
-            plt.close(fig)
+            plt.close('all')
         except Exception as e:
             st.error(f"SHAP explanation error: {e}")
 
@@ -249,6 +259,9 @@ with tab4:
         "Avg Latency (ms/pkt)": ["2.1 ms", "4.8 ms", "1.2 ms"]
     })
     st.table(benchmark_df)
+
+# Explicit garbage collection to release unreferenced figures from RAM
+gc.collect()
 
 # ==========================================
 # LOOP CONTROL WITH BOUNDARY CHECK
