@@ -1,3 +1,4 @@
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://lorawan-anomaly-detector-ztt8vwhvftlozngfbhjfut.streamlit.app)
 # 📡 Real-Time LoRaWAN Intrusion & Anomaly Detection System
 
 An end-to-end Machine Learning pipeline and real-time dashboard designed to detect spoofing, node rogue injection, and physical layer anomalies in LoRaWAN IoT networks.
