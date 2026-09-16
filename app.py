@@ -10,30 +10,54 @@ import streamlit as st
 st.set_page_config(page_title="LoRaWAN Security Dashboard", page_icon="🛡️", layout="wide")
 
 # ==========================================
-# CACHED RESOURCE & DATA LOADERS
+# CACHED LOADERS & INFERENCE ENGINE
 # ==========================================
 @st.cache_resource
 def load_bundle():
-    """Cache model weights in memory so they only load once at startup."""
     return joblib.load("models/lorawan_models_bundle.pkl")
 
 @st.cache_data
 def load_data():
-    """Cache the dataset in RAM for instant filtering and rendering."""
     return pd.read_csv("data/phase1_lorawan_100k.csv")
 
 @st.cache_resource
 def get_shap_explainer(_model):
-    """Cache the SHAP TreeExplainer object to prevent recalculating tree paths on UI interactions."""
     return shap.TreeExplainer(_model, feature_perturbation="tree_path_dependent")
 
-# Initialize cached resources
 try:
     bundle = load_bundle()
     dataset = load_data()
 except Exception as e:
-    st.error(f"Initialization error: {e}. Ensure data and model files exist by running `python src/generate_data.py` and `python src/train.py`.")
+    st.error(f"Initialization error: {e}. Run `python src/generate_data.py` and `python src/train.py`.")
     st.stop()
+
+@st.cache_data
+def get_cached_predictions(start_idx, end_idx, choice):
+    """Predicts strictly on the current slice to guarantee sub-5ms execution."""
+    slice_df = dataset.iloc[start_idx:end_idx].copy()
+    features = bundle["feature_names"]
+    X_input = slice_df[features]
+    
+    if "XGBoost" in choice:
+        preds = bundle["xgboost"].predict(X_input)
+    elif "Random Forest" in choice:
+        preds = bundle["random_forest"].predict(X_input)
+    else:
+        raw_preds = bundle["isolation_forest"].predict(X_input)
+        preds = np.array([1 if p == -1 else 0 for p in raw_preds])
+        
+    slice_df["Prediction"] = preds
+    slice_df["Status"] = slice_df["Prediction"].map({0: "🟢 CLEAN", 1: "🚨 ROGUE ALERT"})
+    slice_df["Classification"] = slice_df["Prediction"].map({0: "Normal Traffic", 1: "Rogue Attack"})
+    return slice_df
+
+@st.cache_data
+def get_purity_sample(sample_size):
+    """Caches Tab 2 dataset sampling to avoid recalculating 3D graphs during ticks."""
+    sample_df = dataset.sample(n=sample_size, random_state=42).copy()
+    target_label = "label" if "label" in sample_df.columns else "is_rogue"
+    sample_df["Node Type"] = sample_df[target_label].map({0: "Benign Node", 1: "Anomalous / Rogue Node"})
+    return sample_df
 
 # ==========================================
 # SIDEBAR CONTROLS
@@ -46,7 +70,7 @@ model_choice = st.sidebar.selectbox(
     ["XGBoost (Supervised)", "Random Forest (Supervised)", "Isolation Forest (Unsupervised)"]
 )
 
-stream_speed = st.sidebar.slider("Stream Interval Delay (s)", 0.1, 2.0, 0.5)
+stream_speed = st.sidebar.slider("Stream Interval Delay (s)", 0.05, 1.0, 0.2)
 batch_size = st.sidebar.slider("Packets per Batch", 10, 100, 25)
 live_stream_active = st.sidebar.checkbox("Enable Live Telemetry Stream", value=True)
 
@@ -58,7 +82,7 @@ if st.sidebar.button("Reset Simulation Stream"):
     st.rerun()
 
 st.title("📡 Real-Time LoRaWAN Intrusion & Anomaly Detector")
-st.caption(f"Engine: `{model_choice}` | Gateway: Star Topology (BPHC Lab) | Lab-3 Explainable AI Upgrade")
+st.caption(f"Engine: `{model_choice}` | Gateway: Star Topology (BPHC Lab) | Lab-3 High-Performance Build")
 
 # Tab Navigation
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -69,29 +93,14 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ==========================================
-# INFERENCE LOGIC
+# SLIDING WINDOW SLICE (FIXED CONSTANT SIZE)
 # ==========================================
-def predict_batch(batch_df, choice):
-    features = bundle["feature_names"]
-    X_input = batch_df[features]
-    
-    if "XGBoost" in choice:
-        preds = bundle["xgboost"].predict(X_input)
-    elif "Random Forest" in choice:
-        preds = bundle["random_forest"].predict(X_input)
-    else:
-        raw_preds = bundle["isolation_forest"].predict(X_input)
-        preds = np.array([1 if p == -1 else 0 for p in raw_preds])
-        
-    batch_df["Prediction"] = preds
-    batch_df["Status"] = batch_df["Prediction"].map({0: "🟢 CLEAN", 1: "🚨 ROGUE ALERT"})
-    batch_df["Classification"] = batch_df["Prediction"].map({0: "Normal Traffic", 1: "Rogue Attack"})
-    return batch_df
-
-# Stream Slice Processing
 current_idx = st.session_state.stream_idx
-stream_df = dataset.iloc[: current_idx + batch_size].copy()
-processed_df = predict_batch(stream_df, model_choice)
+window_size = 500  # Cap maximum rendering window to prevent lag
+start_window = max(0, current_idx - window_size)
+end_window = max(batch_size, current_idx + batch_size)
+
+processed_df = get_cached_predictions(start_window, end_window, model_choice)
 
 # ==========================================
 # TAB 1: LIVE STREAM DASHBOARD
@@ -103,7 +112,7 @@ with tab1:
     rogue_pkts = len(processed_df[processed_df["Prediction"] == 1])
     threat_pct = (rogue_pkts / total_pkts * 100) if total_pkts > 0 else 0.0
 
-    k1.metric("Total Packets Analyzed", total_pkts)
+    k1.metric("Active Window Packets", total_pkts)
     k2.metric("Clean Packets", clean_pkts)
     k3.metric("Rogue Packets Flagged", rogue_pkts, delta=f"{threat_pct:.1f}% Threat Rate", delta_color="inverse")
     
@@ -119,15 +128,13 @@ with tab1:
 
     with c1:
         st.subheader("📊 Signal Separation Scatter (RSSI vs SNR)")
-        plot_df = processed_df.tail(500).copy()
-        
         fig = px.scatter(
-            plot_df, x="rssi", y="snr", color="Classification",
+            processed_df, x="rssi", y="snr", color="Classification",
             color_discrete_map={"Normal Traffic": "#00CC96", "Rogue Attack": "#EF553B"},
             hover_data=["device_id", "sf", "inter_arrival_time", "fcnt"],
             labels={"rssi": "RSSI (dBm)", "snr": "SNR (dB)"}
         )
-        fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=380)
+        fig.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
         st.plotly_chart(fig, use_container_width=True)
 
     with c2:
@@ -140,7 +147,7 @@ with tab1:
             counts, names="Traffic Type", values="Count", hole=0.4,
             color_discrete_sequence=px.colors.qualitative.Set2
         )
-        fig_donut.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=380)
+        fig_donut.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
         st.plotly_chart(fig_donut, use_container_width=True)
 
     st.subheader("📑 Live Gateway Packet Stream")
@@ -162,16 +169,11 @@ with tab1:
 with tab2:
     st.header("🔬 Ground Truth Dataset Purity Analysis")
     st.markdown("""
-    This view demonstrates the physical layer **feature separability** of the 100,000 LoRaWAN packet dataset. 
-    It proves to instructors/evaluators that benign network nodes and rogue spoofing nodes exhibit distinct 
-    RF signal profiles, making them mathematically identifiable.
+    This view demonstrates physical layer **feature separability** across 100,000 LoRaWAN packets, proving benign and rogue nodes exhibit distinct RF profiles.
     """)
     
-    sample_size = st.slider("Select Sample Size for Purity Plots", 1000, 10000, 3000)
-    sample_df = dataset.sample(n=sample_size, random_state=42).copy()
-    
-    target_label = "label" if "label" in sample_df.columns else "is_rogue"
-    sample_df["Node Type"] = sample_df[target_label].map({0: "Benign Node", 1: "Anomalous / Rogue Node"})
+    sample_size = st.slider("Select Sample Size for Purity Plots", 1000, 10000, 3000, key="purity_slider")
+    sample_df = get_purity_sample(sample_size)
     
     col_a, col_b = st.columns(2)
     
@@ -186,7 +188,7 @@ with tab2:
             color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
             labels={"rssi": "RSSI (dBm)", "snr": "SNR (dB)", "sf": "Spreading Factor"}
         )
-        fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=30), height=450)
+        fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=30), height=420)
         st.plotly_chart(fig_3d, use_container_width=True)
 
     with col_b:
@@ -200,7 +202,7 @@ with tab2:
             color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
             labels={"inter_arrival_time": "Inter-Arrival Time (sec)"}
         )
-        fig_box.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=450)
+        fig_box.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=420)
         st.plotly_chart(fig_box, use_container_width=True)
 
 # ==========================================
@@ -209,8 +211,7 @@ with tab2:
 with tab3:
     st.header("🔍 Explainable AI (SHAP Root-Cause Analysis)")
     st.markdown("""
-    This module addresses black-box AI limitations by rendering **SHAP (SHapley Additive exPlanations)** values for every flagged frame.
-    It breaks down exactly *which physical layer feature* pushed the model to flag a specific packet.
+    Renders **SHAP waterfall plots** to isolate physical layer feature attributions for flagged frames.
     """)
     
     target_col = "label" if "label" in dataset.columns else "is_rogue"
@@ -227,9 +228,7 @@ with tab3:
             features = bundle["feature_names"]
             X_sample = sample_row[features].astype(float)
             
-            # Fetch cached SHAP explainer
-            model = bundle["xgboost"]
-            explainer = get_shap_explainer(model)
+            explainer = get_shap_explainer(bundle["xgboost"])
             shap_values = explainer.shap_values(X_sample)
             
             base_val = explainer.expected_value[1] if isinstance(explainer.expected_value, (list, np.ndarray)) else explainer.expected_value
@@ -245,7 +244,7 @@ with tab3:
             shap.plots.waterfall(exp, show=False)
             plt.tight_layout()
             st.pyplot(fig)
-            plt.close(fig)  # Release Matplotlib figure memory
+            plt.close(fig)
         except Exception as e:
             st.error(f"SHAP explanation error: {e}")
 
@@ -255,7 +254,7 @@ with tab3:
 with tab4:
     st.header("📊 Model Evaluation Benchmarks")
     st.markdown("""
-    Performance breakdown across Supervised (**XGBoost**, **Random Forest**) and Unsupervised (**Isolation Forest**) algorithms evaluating detection efficiency and edge inference latency.
+    Performance breakdown comparing Supervised vs Unsupervised engines across accuracy metrics and latency.
     """)
     
     benchmark_df = pd.DataFrame({
@@ -270,7 +269,7 @@ with tab4:
     st.table(benchmark_df)
 
 # ==========================================
-# SIMULATION RERUN LOOP
+# LOOP CONTROL
 # ==========================================
 if live_stream_active and (st.session_state.stream_idx < len(dataset)):
     st.session_state.stream_idx += batch_size
