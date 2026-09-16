@@ -10,7 +10,7 @@ import streamlit as st
 st.set_page_config(page_title="LoRaWAN Security Dashboard", page_icon="🛡️", layout="wide")
 
 # ==========================================
-# CACHED LOADERS & INFERENCE ENGINE
+# STABLE CACHED LOADERS & PRE-COMPUTATION
 # ==========================================
 @st.cache_resource
 def load_bundle():
@@ -32,11 +32,14 @@ except Exception as e:
     st.stop()
 
 @st.cache_data
-def get_cached_predictions(start_idx, end_idx, choice):
-    """Predicts strictly on the current slice to guarantee sub-5ms execution."""
-    slice_df = dataset.iloc[start_idx:end_idx].copy()
+def get_processed_dataset(choice):
+    """
+    Predicts on the full dataset ONCE when a model is chosen.
+    Prevents memory leaks and guarantees 0ms inference lag during streaming.
+    """
+    df = dataset.copy()
     features = bundle["feature_names"]
-    X_input = slice_df[features]
+    X_input = df[features]
     
     if "XGBoost" in choice:
         preds = bundle["xgboost"].predict(X_input)
@@ -46,14 +49,13 @@ def get_cached_predictions(start_idx, end_idx, choice):
         raw_preds = bundle["isolation_forest"].predict(X_input)
         preds = np.array([1 if p == -1 else 0 for p in raw_preds])
         
-    slice_df["Prediction"] = preds
-    slice_df["Status"] = slice_df["Prediction"].map({0: "🟢 CLEAN", 1: "🚨 ROGUE ALERT"})
-    slice_df["Classification"] = slice_df["Prediction"].map({0: "Normal Traffic", 1: "Rogue Attack"})
-    return slice_df
+    df["Prediction"] = preds
+    df["Status"] = df["Prediction"].map({0: "🟢 CLEAN", 1: "🚨 ROGUE ALERT"})
+    df["Classification"] = df["Prediction"].map({0: "Normal Traffic", 1: "Rogue Attack"})
+    return df
 
 @st.cache_data
 def get_purity_sample(sample_size):
-    """Caches Tab 2 dataset sampling to avoid recalculating 3D graphs during ticks."""
     sample_df = dataset.sample(n=sample_size, random_state=42).copy()
     target_label = "label" if "label" in sample_df.columns else "is_rogue"
     sample_df["Node Type"] = sample_df[target_label].map({0: "Benign Node", 1: "Anomalous / Rogue Node"})
@@ -70,21 +72,24 @@ model_choice = st.sidebar.selectbox(
     ["XGBoost (Supervised)", "Random Forest (Supervised)", "Isolation Forest (Unsupervised)"]
 )
 
-stream_speed = st.sidebar.slider("Stream Interval Delay (s)", 0.05, 1.0, 0.2)
+stream_speed = st.sidebar.slider("Stream Interval Delay (s)", 0.2, 2.0, 0.5)
 batch_size = st.sidebar.slider("Packets per Batch", 10, 100, 25)
-live_stream_active = st.sidebar.checkbox("Enable Live Telemetry Stream", value=True)
+live_stream_active = st.sidebar.checkbox("Enable Live Telemetry Stream", value=False)
 
 if "stream_idx" not in st.session_state:
-    st.session_state.stream_idx = 0
+    st.session_state.stream_idx = 100
 
 if st.sidebar.button("Reset Simulation Stream"):
-    st.session_state.stream_idx = 0
+    st.session_state.stream_idx = 100
     st.rerun()
 
 st.title("📡 Real-Time LoRaWAN Intrusion & Anomaly Detector")
-st.caption(f"Engine: `{model_choice}` | Gateway: Star Topology (BPHC Lab) | Lab-3 High-Performance Build")
+st.caption(f"Engine: `{model_choice}` | Gateway: Star Topology (BPHC Lab) | Production-Grade Build")
 
-# Tab Navigation
+# Load full pre-computed dataset for selected engine
+full_processed_df = get_processed_dataset(model_choice)
+
+# Navigation
 tab1, tab2, tab3, tab4 = st.tabs([
     "⚡ Live Network Stream", 
     "🔬 Dataset Purity & Separability Analysis", 
@@ -92,15 +97,10 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📊 Model Benchmarks"
 ])
 
-# ==========================================
-# SLIDING WINDOW SLICE (FIXED CONSTANT SIZE)
-# ==========================================
+# Slice static window based on current stream pointer
 current_idx = st.session_state.stream_idx
-window_size = 500  # Cap maximum rendering window to prevent lag
-start_window = max(0, current_idx - window_size)
-end_window = max(batch_size, current_idx + batch_size)
-
-processed_df = get_cached_predictions(start_window, end_window, model_choice)
+start_window = max(0, current_idx - 300)
+processed_df = full_processed_df.iloc[start_window:current_idx].copy()
 
 # ==========================================
 # TAB 1: LIVE STREAM DASHBOARD
@@ -168,23 +168,16 @@ with tab1:
 # ==========================================
 with tab2:
     st.header("🔬 Ground Truth Dataset Purity Analysis")
-    st.markdown("""
-    This view demonstrates physical layer **feature separability** across 100,000 LoRaWAN packets, proving benign and rogue nodes exhibit distinct RF profiles.
-    """)
+    st.markdown("This view demonstrates physical layer feature separability across 100,000 LoRaWAN packets.")
     
     sample_size = st.slider("Select Sample Size for Purity Plots", 1000, 10000, 3000, key="purity_slider")
     sample_df = get_purity_sample(sample_size)
     
     col_a, col_b = st.columns(2)
-    
     with col_a:
         st.subheader("1. 3D Cluster Purity (RSSI vs SNR vs SF)")
         fig_3d = px.scatter_3d(
-            sample_df,
-            x="rssi", y="snr", z="sf",
-            color="Node Type",
-            symbol="Node Type",
-            opacity=0.7,
+            sample_df, x="rssi", y="snr", z="sf", color="Node Type", symbol="Node Type", opacity=0.7,
             color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
             labels={"rssi": "RSSI (dBm)", "snr": "SNR (dB)", "sf": "Spreading Factor"}
         )
@@ -194,11 +187,7 @@ with tab2:
     with col_b:
         st.subheader("2. Inter-Arrival Time Anomalies")
         fig_box = px.box(
-            sample_df,
-            x="Node Type",
-            y="inter_arrival_time",
-            color="Node Type",
-            points="outliers",
+            sample_df, x="Node Type", y="inter_arrival_time", color="Node Type", points="outliers",
             color_discrete_map={"Benign Node": "#00CC96", "Anomalous / Rogue Node": "#EF553B"},
             labels={"inter_arrival_time": "Inter-Arrival Time (sec)"}
         )
@@ -210,9 +199,7 @@ with tab2:
 # ==========================================
 with tab3:
     st.header("🔍 Explainable AI (SHAP Root-Cause Analysis)")
-    st.markdown("""
-    Renders **SHAP waterfall plots** to isolate physical layer feature attributions for flagged frames.
-    """)
+    st.markdown("Renders SHAP waterfall plots to isolate physical layer feature attributions for flagged frames.")
     
     target_col = "label" if "label" in dataset.columns else "is_rogue"
     attacks_only = dataset[dataset[target_col] == 1]
@@ -253,10 +240,6 @@ with tab3:
 # ==========================================
 with tab4:
     st.header("📊 Model Evaluation Benchmarks")
-    st.markdown("""
-    Performance breakdown comparing Supervised vs Unsupervised engines across accuracy metrics and latency.
-    """)
-    
     benchmark_df = pd.DataFrame({
         "Model Engine": ["XGBoost Classifier", "Random Forest Classifier", "Isolation Forest"],
         "Paradigms": ["Supervised", "Supervised", "Unsupervised"],
@@ -265,13 +248,15 @@ with tab4:
         "F1-Score": [0.990, 0.981, 0.867],
         "Avg Latency (ms/pkt)": ["2.1 ms", "4.8 ms", "1.2 ms"]
     })
-    
     st.table(benchmark_df)
 
 # ==========================================
-# LOOP CONTROL
+# LOOP CONTROL WITH BOUNDARY CHECK
 # ==========================================
-if live_stream_active and (st.session_state.stream_idx < len(dataset)):
-    st.session_state.stream_idx += batch_size
+if live_stream_active:
+    if st.session_state.stream_idx < len(dataset) - batch_size:
+        st.session_state.stream_idx += batch_size
+    else:
+        st.session_state.stream_idx = 100
     time.sleep(stream_speed)
     st.rerun()
