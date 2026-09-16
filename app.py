@@ -1,22 +1,33 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import joblib
 import time
-import shap
+import joblib
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import shap
+import streamlit as st
 
 st.set_page_config(page_title="LoRaWAN Security Dashboard", page_icon="🛡️", layout="wide")
 
+# ==========================================
+# CACHED RESOURCE & DATA LOADERS
+# ==========================================
 @st.cache_resource
 def load_bundle():
+    """Cache model weights in memory so they only load once at startup."""
     return joblib.load("models/lorawan_models_bundle.pkl")
 
 @st.cache_data
 def load_data():
+    """Cache the dataset in RAM for instant filtering and rendering."""
     return pd.read_csv("data/phase1_lorawan_100k.csv")
 
+@st.cache_resource
+def get_shap_explainer(_model):
+    """Cache the SHAP TreeExplainer object to prevent recalculating tree paths on UI interactions."""
+    return shap.TreeExplainer(_model, feature_perturbation="tree_path_dependent")
+
+# Initialize cached resources
 try:
     bundle = load_bundle()
     dataset = load_data()
@@ -24,7 +35,9 @@ except Exception as e:
     st.error(f"Initialization error: {e}. Ensure data and model files exist by running `python src/generate_data.py` and `python src/train.py`.")
     st.stop()
 
-# Sidebar Controls
+# ==========================================
+# SIDEBAR CONTROLS
+# ==========================================
 st.sidebar.title("🛡️ Network Control Panel")
 st.sidebar.markdown("**Lab-3 Multi-Vector IDS Setup**")
 
@@ -35,12 +48,14 @@ model_choice = st.sidebar.selectbox(
 
 stream_speed = st.sidebar.slider("Stream Interval Delay (s)", 0.1, 2.0, 0.5)
 batch_size = st.sidebar.slider("Packets per Batch", 10, 100, 25)
+live_stream_active = st.sidebar.checkbox("Enable Live Telemetry Stream", value=True)
 
 if "stream_idx" not in st.session_state:
     st.session_state.stream_idx = 0
 
 if st.sidebar.button("Reset Simulation Stream"):
     st.session_state.stream_idx = 0
+    st.rerun()
 
 st.title("📡 Real-Time LoRaWAN Intrusion & Anomaly Detector")
 st.caption(f"Engine: `{model_choice}` | Gateway: Star Topology (BPHC Lab) | Lab-3 Explainable AI Upgrade")
@@ -53,7 +68,9 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📊 Model Benchmarks"
 ])
 
-# Predict Function
+# ==========================================
+# INFERENCE LOGIC
+# ==========================================
 def predict_batch(batch_df, choice):
     features = bundle["feature_names"]
     X_input = batch_df[features]
@@ -71,15 +88,15 @@ def predict_batch(batch_df, choice):
     batch_df["Classification"] = batch_df["Prediction"].map({0: "Normal Traffic", 1: "Rogue Attack"})
     return batch_df
 
-# Stream Slice Logic
+# Stream Slice Processing
 current_idx = st.session_state.stream_idx
 stream_df = dataset.iloc[: current_idx + batch_size].copy()
 processed_df = predict_batch(stream_df, model_choice)
-st.session_state.stream_idx += batch_size
 
+# ==========================================
 # TAB 1: LIVE STREAM DASHBOARD
+# ==========================================
 with tab1:
-    # Top KPIs
     k1, k2, k3, k4 = st.columns(4)
     total_pkts = len(processed_df)
     clean_pkts = len(processed_df[processed_df["Prediction"] == 0])
@@ -90,12 +107,14 @@ with tab1:
     k2.metric("Clean Packets", clean_pkts)
     k3.metric("Rogue Packets Flagged", rogue_pkts, delta=f"{threat_pct:.1f}% Threat Rate", delta_color="inverse")
     
-    # Active attack vector breakdown if available
     latest_attack = processed_df[processed_df["Prediction"] == 1]
-    active_threat_name = latest_attack["attack_type"].iloc[-1] if ("attack_type" in processed_df.columns and not latest_attack.empty) else ("Rogue_X1" if rogue_pkts > 0 else "None Detected")
+    active_threat_name = (
+        latest_attack["attack_type"].iloc[-1] 
+        if ("attack_type" in processed_df.columns and not latest_attack.empty) 
+        else ("Rogue_X1" if rogue_pkts > 0 else "None Detected")
+    )
     k4.metric("Active Threat Type", active_threat_name)
 
-    # Visuals
     c1, c2 = st.columns([6, 4])
 
     with c1:
@@ -124,7 +143,6 @@ with tab1:
         fig_donut.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=380)
         st.plotly_chart(fig_donut, use_container_width=True)
 
-    # Packet Stream Table
     st.subheader("📑 Live Gateway Packet Stream")
     display_cols = ["device_id", "rssi", "snr", "sf", "inter_arrival_time", "fcnt"]
     if "attack_type" in processed_df.columns:
@@ -138,7 +156,9 @@ with tab1:
 
     st.dataframe(recent_logs.style.map(highlight_rogue, subset=["Status"]), use_container_width=True)
 
-# TAB 2: DATASET PURITY & SEPARABILITY ANALYSIS
+# ==========================================
+# TAB 2: DATASET PURITY & SEPARABILITY
+# ==========================================
 with tab2:
     st.header("🔬 Ground Truth Dataset Purity Analysis")
     st.markdown("""
@@ -183,7 +203,9 @@ with tab2:
         fig_box.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=450)
         st.plotly_chart(fig_box, use_container_width=True)
 
+# ==========================================
 # TAB 3: EXPLAINABLE AI (SHAP)
+# ==========================================
 with tab3:
     st.header("🔍 Explainable AI (SHAP Root-Cause Analysis)")
     st.markdown("""
@@ -205,12 +227,11 @@ with tab3:
             features = bundle["feature_names"]
             X_sample = sample_row[features].astype(float)
             
-            # Use tree_path_dependent perturbation to bypass XGBoost categorical split check
+            # Fetch cached SHAP explainer
             model = bundle["xgboost"]
-            explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+            explainer = get_shap_explainer(model)
             shap_values = explainer.shap_values(X_sample)
             
-            # Reconstruct Explanation object for waterfall rendering
             base_val = explainer.expected_value[1] if isinstance(explainer.expected_value, (list, np.ndarray)) else explainer.expected_value
             exp = shap.Explanation(
                 values=shap_values[0],
@@ -224,10 +245,13 @@ with tab3:
             shap.plots.waterfall(exp, show=False)
             plt.tight_layout()
             st.pyplot(fig)
+            plt.close(fig)  # Release Matplotlib figure memory
         except Exception as e:
             st.error(f"SHAP explanation error: {e}")
 
+# ==========================================
 # TAB 4: MODEL BENCHMARKS
+# ==========================================
 with tab4:
     st.header("📊 Model Evaluation Benchmarks")
     st.markdown("""
@@ -245,7 +269,10 @@ with tab4:
     
     st.table(benchmark_df)
 
-# Loop stream rerun logic
-if st.session_state.stream_idx < len(dataset):
+# ==========================================
+# SIMULATION RERUN LOOP
+# ==========================================
+if live_stream_active and (st.session_state.stream_idx < len(dataset)):
+    st.session_state.stream_idx += batch_size
     time.sleep(stream_speed)
     st.rerun()
