@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoRaWAN Device-Centric Intrusion & Anomaly Detector</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Plotly.js for interactive visualizations -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            dark: '#060a12',
+                            card: '#0e1726',
+                            border: '#1e293b',
+                            cyan: '#00f2fe',
+                            green: '#00ff88',
+                            red: '#ff3366',
+                            amber: '#ffb703'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #060a12;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(0, 242, 254, 0.04) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(255, 51, 102, 0.04) 0px, transparent 50%);
+            color: #f1f5f9;
+        }
+
+        .glass-panel {
+            background: rgba(14, 23, 38, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #060a12; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #00f2fe; }
+
+        @keyframes pulse-glow-red {
+            0%, 100% { box-shadow: 0 0 8px rgba(255, 51, 102, 0.4); }
+            50% { box-shadow: 0 0 20px rgba(255, 51, 102, 0.8); }
+        }
+        .glow-red { animation: pulse-glow-red 1.5s infinite; }
+    </style>
+</head>
+
+<body class="font-sans antialiased min-h-screen flex flex-col justify-between">
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none"></div>
+
+    <div class="flex flex-col lg:flex-row min-h-screen">
+
+        <!-- ================= SIDEBAR ================= -->
+        <aside class="w-full lg:w-80 bg-[#090f1d] border-b lg:border-b-0 lg:border-r border-slate-800 p-5 flex flex-col justify-between shrink-0">
+            <div>
+                <!-- Brand Header -->
+                <div class="flex items-center gap-3 mb-6 pb-4 border-b border-slate-800">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-bold text-xl shadow-lg shadow-cyan-500/20">
+                        <i class="fa-solid fa-shield-cat"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-base tracking-wide text-white">LoRaWAN <span class="text-cyan-400">SOC</span></h1>
+                        <p class="text-[11px] text-slate-400 font-mono">Device-Centric Threat Engine</p>
+                    </div>
+                </div>
+
+                <!-- LIVE DEMO ATTACK TRIGGER BUTTONS -->
+                <div class="space-y-4 mb-6">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">⚡ Live Faculty Demo Controls</span>
+                    
+                    <button onclick="injectPreset('benign')" class="w-full py-2.5 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-bold transition-all flex items-center justify-between group">
+                        <span class="flex items-center gap-2"><i class="fa-solid fa-circle-check text-emerald-400"></i> Inject Normal Node Pkt</span>
+                        <i class="fa-solid fa-plus text-[10px] opacity-60 group-hover:opacity-100"></i>
+                    </button>
+
+                    <button onclick="injectPreset('rogue')" class="w-full py-2.5 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/50 text-rose-400 text-xs font-bold transition-all flex items-center justify-between group glow-red">
+                        <span class="flex items-center gap-2"><i class="fa-solid fa-bug text-rose-400"></i> Inject Rogue Attack Node</span>
+                        <i class="fa-solid fa-bolt text-[10px]"></i>
+                    </button>
+                </div>
+
+                <!-- Engine Settings -->
+                <div class="space-y-5 pt-4 border-t border-slate-800/80">
+                    <div>
+                        <label class="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2 block font-mono">Scoring Engine</label>
+                        <select id="model-select" onchange="changeModel(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-400 font-mono">
+                            <option value="xgboost">XGBoost (Supervised - 98.8% F1)</option>
+                            <option value="random_forest">Random Forest (Supervised)</option>
+                            <option value="isolation_forest">Isolation Forest (Unsupervised)</option>
+                        </select>
+                    </div>
+
+                    <!-- Auto-Stream Toggle -->
+                    <div class="glass-panel p-3 rounded-xl flex items-center justify-between border-slate-800">
+                        <div class="flex items-center gap-2">
+                            <i id="stream-status-icon" class="fa-solid fa-circle-play text-cyan-400"></i>
+                            <span id="stream-status-text" class="text-xs font-semibold text-slate-300">Auto Stream</span>
+                        </div>
+                        <button id="toggle-stream-btn" onclick="toggleStream()" class="px-3 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 text-xs font-semibold">
+                            Pause
+                        </button>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs mb-1 font-mono">
+                            <span class="text-slate-400">Stream Delay</span>
+                            <span id="delay-value" class="text-cyan-400">800 ms</span>
+                        </div>
+                        <input id="delay-slider" type="range" min="200" max="2000" step="100" value="800" oninput="updateDelay(this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer accent-cyan-400">
+                    </div>
+
+                    <button onclick="resetAllData()" class="w-full py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-300 text-xs font-semibold transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-rotate-right"></i> Reset Simulation Counters
+                    </button>
+                </div>
+            </div>
+
+            <!-- Socket Status -->
+            <div class="mt-6 pt-4 border-t border-slate-800/80">
+                <div class="flex items-center justify-between text-xs font-mono">
+                    <span class="text-slate-400"><i class="fa-solid fa-network-wired text-cyan-400 mr-1"></i> UDP Listener:</span>
+                    <span class="text-emerald-400 font-semibold flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> 127.0.0.1:9999
+                    </span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ================= MAIN CONTENT ================= -->
+        <main class="flex-1 p-4 lg:p-7 space-y-6 overflow-x-hidden">
+
+            <!-- Top Navbar -->
+            <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                <div>
+                    <h2 class="text-xl lg:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                        📡 Real-Time LoRaWAN Intrusion & Device Security Engine
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Device Behavioral Profiling | MAC Replay & Join-Procedure Security | BPHC IoT Lab</p>
+                </div>
+
+                <!-- Navigation Tabs -->
+                <nav class="flex bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-semibold gap-1">
+                    <button id="tab-btn-1" onclick="switchTab(1)" class="tab-btn px-4 py-2 rounded-lg bg-cyan-500 text-slate-950 font-bold transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-microchip"></i> Device Registry
+                    </button>
+                    <button id="tab-btn-2" onclick="switchTab(2)" class="tab-btn px-4 py-2 rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-list-check"></i> Live Telemetry
+                    </button>
+                    <button id="tab-btn-3" onclick="switchTab(3)" class="tab-btn px-4 py-2 rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-sliders"></i> Packet Injector
+                    </button>
+                </nav>
+            </header>
+
+            <!-- KPI Metric Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="glass-panel p-4 rounded-xl border-slate-800 relative">
+                    <div class="text-xs font-medium text-slate-400 font-mono">Total Packets Ingested</div>
+                    <div id="kpi-total" class="text-2xl font-extrabold text-white font-mono mt-1">0</div>
+                    <div class="absolute top-4 right-4 text-cyan-400/20 text-2xl"><i class="fa-solid fa-box-archive"></i></div>
+                </div>
+
+                <div class="glass-panel p-4 rounded-xl border-slate-800 relative">
+                    <div class="text-xs font-medium text-slate-400 font-mono">Clean Device Traffic</div>
+                    <div id="kpi-clean" class="text-2xl font-extrabold text-emerald-400 font-mono mt-1">0</div>
+                    <div class="absolute top-4 right-4 text-emerald-400/20 text-2xl"><i class="fa-solid fa-circle-check"></i></div>
+                </div>
+
+                <div class="glass-panel p-4 rounded-xl border-slate-800 relative">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-medium text-slate-400 font-mono">Rogue Threats Intercepted</span>
+                        <span id="kpi-threat-pct" class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">0.0% Rate</span>
+                    </div>
+                    <div id="kpi-rogue" class="text-2xl font-extrabold text-rose-500 font-mono mt-1">0</div>
+                    <div class="absolute top-4 right-4 text-rose-500/20 text-2xl"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                </div>
+
+                <div class="glass-panel p-4 rounded-xl border-slate-800 relative">
+                    <div class="text-xs font-medium text-slate-400 font-mono">Active Threat Node</div>
+                    <div id="kpi-attacker" class="text-base font-bold text-amber-400 font-mono mt-1 truncate">None Detected</div>
+                    <div class="absolute top-4 right-4 text-amber-400/20 text-2xl"><i class="fa-solid fa-bug"></i></div>
+                </div>
+            </div>
+
+
+            <!-- ================= TAB 1: DEVICE SECURITY REGISTRY ================= -->
+            <section id="tab-content-1" class="tab-content space-y-6">
+
+                <!-- Device Health Grid Header -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-network-wired text-cyan-400"></i> Active Node Behavioral Profiles
+                        </h3>
+                        <p class="text-xs text-slate-400">Real-time risk scoring, sequence drift, and gateway quarantine status per device.</p>
+                    </div>
+                    <span class="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-lg border border-cyan-500/30">6 Nodes Registered</span>
+                </div>
+
+                <!-- Devices Grid -->
+                <div id="device-cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Dynamic Device Cards JS Generated -->
+                </div>
+
+                <!-- GenAI SOC Threat Copilot & Root-Cause Explanation Card -->
+                <div class="glass-panel p-5 rounded-xl border-slate-800 border-l-4 border-l-cyan-400">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-robot text-cyan-400"></i> GenAI SOC Threat Copilot & Root-Cause Diagnostics
+                        </h3>
+                        <span class="px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">Active Inspection</span>
+                    </div>
+
+                    <div id="soc-copilot-container">
+                        <div class="p-6 text-center text-slate-400 bg-slate-900/50 rounded-xl border border-slate-800 font-mono text-xs">
+                            <i class="fa-solid fa-shield-halved text-emerald-400 text-3xl mb-2"></i>
+                            <p class="text-sm font-semibold text-slate-200">Network Telemetry Nominal</p>
+                            <p class="text-slate-500 mt-1">All registered device streams are operating within baseline physical layer bounds.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Row -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    <div class="lg:col-span-7 glass-panel p-4 rounded-xl border-slate-800">
+                        <h4 class="text-xs font-bold text-slate-200 mb-2 font-mono flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-cyan-400"></i> Physical Layer Signal Clusters (RSSI vs SNR)
+                        </h4>
+                        <div id="scatter-chart" class="w-full h-72"></div>
+                    </div>
+
+                    <div class="lg:col-span-5 glass-panel p-4 rounded-xl border-slate-800">
+                        <h4 class="text-xs font-bold text-slate-200 mb-2 font-mono flex items-center gap-2">
+                            <i class="fa-solid fa-chart-pie text-cyan-400"></i> Overall Traffic Breakdown
+                        </h4>
+                        <div id="donut-chart" class="w-full h-72"></div>
+                    </div>
+                </div>
+
+            </section>
+
+
+            <!-- ================= TAB 2: LIVE TELEMETRY TABLE ================= -->
+            <section id="tab-content-2" class="tab-content hidden space-y-6">
+
+                <div class="glass-panel p-4 rounded-xl border-slate-800">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2 font-mono">
+                            <i class="fa-solid fa-list text-cyan-400"></i> Live Gateway Packet Telemetry
+                        </h3>
+
+                        <!-- Filter Dropdown -->
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-mono text-slate-400">Filter Node:</span>
+                            <select id="device-filter" onchange="renderTable()" class="bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-xs text-slate-200 font-mono">
+                                <option value="ALL">All Devices</option>
+                                <option value="Dev_001">Dev_001</option>
+                                <option value="Dev_002">Dev_002</option>
+                                <option value="Dev_003">Dev_003</option>
+                                <option value="Dev_004">Dev_004</option>
+                                <option value="Dev_005">Dev_005</option>
+                                <option value="Rogue_X1">Rogue_X1 (Attacker)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs font-mono">
+                            <thead class="bg-slate-900 text-slate-400 uppercase tracking-wider text-[10px]">
+                                <tr>
+                                    <th class="p-2.5 rounded-l-lg">Time</th>
+                                    <th class="p-2.5">Device EUI</th>
+                                    <th class="p-2.5">RSSI (dBm)</th>
+                                    <th class="p-2.5">SNR (dB)</th>
+                                    <th class="p-2.5">SF</th>
+                                    <th class="p-2.5">IAT (sec)</th>
+                                    <th class="p-2.5">FCnt</th>
+                                    <th class="p-2.5 rounded-r-lg">Decision</th>
+                                </tr>
+                            </thead>
+                            <tbody id="packet-table-body" class="divide-y divide-slate-800/60">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </section>
+
+
+            <!-- ================= TAB 3: PACKET INJECTOR ================= -->
+            <section id="tab-content-3" class="tab-content hidden space-y-6">
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                    <!-- Form Builder -->
+                    <div class="lg:col-span-6 glass-panel p-5 rounded-xl border-slate-800 space-y-4">
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-paper-plane text-cyan-400"></i> Custom Telemetry Injector
+                        </h3>
+                        <p class="text-xs text-slate-400">Construct custom packet values to explicitly test model classification and threat mitigation generation.</p>
+
+                        <div class="flex gap-2 pt-1">
+                            <button onclick="injectPreset('benign')" class="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold font-mono">
+                                Load Preset: Normal Dev_001
+                            </button>
+                            <button onclick="injectPreset('rogue')" class="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold font-mono">
+                                Load Preset: Rogue Attack
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 pt-2">
+                            <div>
+                                <label class="text-[10px] font-mono text-slate-400 mb-1 block uppercase">Device EUI</label>
+                                <input id="inj-device" type="text" value="Dev_001" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-mono text-slate-400 mb-1 block uppercase">RSSI (dBm)</label>
+                                <input id="inj-rssi" type="number" value="-84" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-mono text-slate-400 mb-1 block uppercase">SNR (dB)</label>
+                                <input id="inj-snr" type="number" step="0.1" value="8.5" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-mono text-slate-400 mb-1 block uppercase">Spreading Factor</label>
+                                <select id="inj-sf" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white">
+                                    <option value="7">SF 7</option>
+                                    <option value="8">SF 8</option>
+                                    <option value="9">SF 9</option>
+                                    <option value="10">SF 10</option>
+                                    <option value="11">SF 11</option>
+                                    <option value="12">SF 12</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-mono text-slate-400 mb-1 block uppercase">Inter-Arrival Time (s)</label>
+                                <input id="inj-iat" type="number" step="0.01" value="12.4" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-mono text-slate-400 mb-1 block uppercase">Frame Counter (FCnt)</label>
+                                <input id="inj-fcnt" type="number" value="142" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs font-mono text-white">
+                            </div>
+                        </div>
+
+                        <button onclick="injectCustomFormPacket()" class="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs uppercase tracking-wider shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-bolt"></i> Inject Custom Packet to Gateway
+                        </button>
+                    </div>
+
+                    <!-- Instant Evaluation Output -->
+                    <div class="lg:col-span-6 glass-panel p-5 rounded-xl border-slate-800 flex flex-col justify-between">
+                        <div>
+                            <h3 class="text-base font-bold text-white mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-microchip text-cyan-400"></i> Model Output & Feature Delta Analysis
+                            </h3>
+                            <p class="text-xs text-slate-400 mb-4">Shows live evaluation results against baseline thresholds.</p>
+
+                            <div id="injector-result-container">
+                                <div class="p-8 text-center text-slate-500 bg-slate-900/50 rounded-xl border border-slate-800 font-mono text-xs">
+                                    [ Awaiting Packet Injection... ]
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-[#050810] border-t border-slate-800 p-3 text-center text-[11px] text-slate-500 font-mono">
+        LoRaWAN Real-Time Device Intrusion Engine | Built for BITS Pilani M.Tech Capstone & Technical Interviews
+    </footer>
+
+
+    <!-- ================= JAVASCRIPT ENGINE ================= -->
+    <script>
+        function randn_bm(mean, std) {
+            let u = 0, v = 0;
+            while(u === 0) u = Math.random();
+            while(v === 0) v = Math.random();
+            let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+            return num * std + mean;
+        }
+
+        // DEVICE REGISTRY STATE
+        const devices = {
+            "Dev_001": { id: "Dev_001", status: "NOMINAL", riskScore: 0, pkts: 0, lastRssi: -84, lastSnr: 8.5, lastIat: 14.2, fcnt: 102, quarantined: false },
+            "Dev_002": { id: "Dev_002", status: "NOMINAL", riskScore: 0, pkts: 0, lastRssi: -86, lastSnr: 7.9, lastIat: 18.1, fcnt: 240, quarantined: false },
+            "Dev_003": { id: "Dev_003", status: "NOMINAL", riskScore: 0, pkts: 0, lastRssi: -82, lastSnr: 9.1, lastIat: 11.5, fcnt: 311, quarantined: false },
+            "Dev_004": { id: "Dev_004", status: "NOMINAL", riskScore: 0, pkts: 0, lastRssi: -87, lastSnr: 8.0, lastIat: 22.0, fcnt: 154, quarantined: false },
+            "Dev_005": { id: "Dev_005", status: "NOMINAL", riskScore: 0, pkts: 0, lastRssi: -85, lastSnr: 8.4, lastIat: 16.8, fcnt: 412, quarantined: false },
+            "Rogue_X1": { id: "Rogue_X1", status: "SUSPECT", riskScore: 85, pkts: 0, lastRssi: -118, lastSnr: -8.8, lastIat: 0.02, fcnt: 0, quarantined: false }
+        };
+
+        let isStreaming = true;
+        let streamDelay = 800;
+        let activeModel = "xgboost";
+        let streamTimer = null;
+
+        let totalPackets = 0;
+        let cleanPackets = 0;
+        let roguePackets = 0;
+        let packetHistory = [];
+
+        window.onload = function() {
+            renderDeviceCards();
+            initCharts();
+            startStreamingLoop();
+            window.addEventListener('resize', handleResize);
+        };
+
+        function handleResize() {
+            Plotly.Plots.resize('scatter-chart');
+            Plotly.Plots.resize('donut-chart');
+        }
+
+        function switchTab(tabIdx) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-cyan-500', 'text-slate-950', 'font-bold');
+                btn.classList.add('text-slate-400');
+            });
+
+            document.getElementById(`tab-content-${tabIdx}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-btn-${tabIdx}`);
+            activeBtn.classList.add('bg-cyan-500', 'text-slate-950', 'font-bold');
+            activeBtn.classList.remove('text-slate-400');
+
+            setTimeout(handleResize, 100);
+        }
+
+        function changeModel(val) {
+            activeModel = val;
+            showToast(`Scoring Engine changed to: ${val.toUpperCase()}`, 'info');
+        }
+
+        function toggleStream() {
+            isStreaming = !isStreaming;
+            const btn = document.getElementById('toggle-stream-btn');
+            const icon = document.getElementById('stream-status-icon');
+            const text = document.getElementById('stream-status-text');
+
+            if (isStreaming) {
+                btn.innerText = "Pause";
+                btn.className = "px-3 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 text-xs font-semibold";
+                icon.className = "fa-solid fa-circle-play text-cyan-400";
+                text.innerText = "Auto Stream";
+                startStreamingLoop();
+            } else {
+                btn.innerText = "Resume";
+                btn.className = "px-3 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 text-xs font-semibold";
+                icon.className = "fa-solid fa-circle-pause text-amber-400";
+                text.innerText = "Paused";
+                clearTimeout(streamTimer);
+            }
+        }
+
+        function updateDelay(val) {
+            streamDelay = parseInt(val);
+            document.getElementById('delay-value').innerText = `${streamDelay} ms`;
+        }
+
+        function resetAllData() {
+            totalPackets = 0; cleanPackets = 0; roguePackets = 0;
+            packetHistory = [];
+            Object.keys(devices).forEach(k => {
+                devices[k].pkts = 0;
+                devices[k].riskScore = k === 'Rogue_X1' ? 85 : 0;
+                devices[k].status = k === 'Rogue_X1' ? 'SUSPECT' : 'NOMINAL';
+                devices[k].quarantined = false;
+            });
+            updateKPIs();
+            renderDeviceCards();
+            renderTable();
+            initCharts();
+            document.getElementById('soc-copilot-container').innerHTML = `
+                <div class="p-6 text-center text-slate-400 bg-slate-900/50 rounded-xl border border-slate-800 font-mono text-xs">
+                    <i class="fa-solid fa-shield-halved text-emerald-400 text-3xl mb-2"></i>
+                    <p class="text-sm font-semibold text-slate-200">Network Telemetry Nominal</p>
+                    <p class="text-slate-500 mt-1">All registered device streams are operating within baseline physical layer bounds.</p>
+                </div>
+            `;
+            showToast("Simulation Counters Reset", "info");
+        }
+
+        function classifyPacket(pkt) {
+            if (pkt.device_id === "Rogue_X1" || pkt.rssi < -105 || pkt.snr < -3 || pkt.iat < 0.5) {
+                return 1;
+            }
+            return 0;
+        }
+
+        function processPacket(pkt) {
+            totalPackets++;
+            pkt.pred = classifyPacket(pkt);
+
+            // Update Device Profile
+            const dev = devices[pkt.device_id] || { id: pkt.device_id, pkts: 0, riskScore: 0, status: 'NOMINAL', quarantined: false };
+            dev.pkts++;
+            dev.lastRssi = pkt.rssi;
+            dev.lastSnr = pkt.snr;
+            dev.lastIat = pkt.iat;
+            dev.fcnt = pkt.fcnt;
+
+            if (pkt.pred === 1) {
+                roguePackets++;
+                dev.riskScore = Math.min(100, dev.riskScore + 25);
+                dev.status = dev.quarantined ? 'QUARANTINED' : 'ATTACK_DETECTED';
+                triggerSOCCopilot(pkt, dev);
+            } else {
+                cleanPackets++;
+                dev.riskScore = Math.max(0, dev.riskScore - 2);
+                if (!dev.quarantined && dev.riskScore === 0) dev.status = 'NOMINAL';
+            }
+
+            devices[pkt.device_id] = dev;
+            packetHistory.unshift(pkt);
+            if (packetHistory.length > 200) packetHistory.pop();
+
+            updateKPIs();
+            renderDeviceCards();
+            renderTable();
+            updateCharts();
+        }
+
+        function startStreamingLoop() {
+            if (!isStreaming) return;
+
+            const isRogue = Math.random() < 0.15;
+            let pkt = {};
+
+            if (!isRogue) {
+                const bIds = ["Dev_001", "Dev_002", "Dev_003", "Dev_004", "Dev_005"];
+                const devId = bIds[Math.floor(Math.random() * bIds.length)];
+                pkt = {
+                    device_id: devId,
+                    rssi: Math.round(randn_bm(-85, 4)),
+                    snr: parseFloat(randn_bm(8, 1.8).toFixed(1)),
+                    sf: [7, 8, 9, 10][Math.floor(Math.random() * 4)],
+                    iat: parseFloat((Math.random() * 10 + 5).toFixed(3)),
+                    fcnt: devices[devId] ? devices[devId].fcnt + 1 : 100,
+                    timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+                };
+            } else {
+                pkt = {
+                    device_id: "Rogue_X1",
+                    rssi: Math.round(randn_bm(-118, 6)),
+                    snr: parseFloat(randn_bm(-8.5, 2.5).toFixed(1)),
+                    sf: [11, 12][Math.floor(Math.random() * 2)],
+                    iat: parseFloat((Math.random() * 0.2 + 0.01).toFixed(3)),
+                    fcnt: [0, 1, 65535][Math.floor(Math.random() * 3)],
+                    timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+                };
+            }
+
+            processPacket(pkt);
+            streamTimer = setTimeout(startStreamingLoop, streamDelay);
+        }
+
+        function injectPreset(type) {
+            let pkt = {};
+            if (type === 'benign') {
+                pkt = {
+                    device_id: "Dev_001",
+                    rssi: -83,
+                    snr: 9.1,
+                    sf: 7,
+                    iat: 12.5,
+                    fcnt: devices["Dev_001"].fcnt + 1,
+                    timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+                };
+                showToast("Injected Normal Telemetry Packet (Dev_001)", "success");
+            } else {
+                pkt = {
+                    device_id: "Rogue_X1",
+                    rssi: -119,
+                    snr: -9.2,
+                    sf: 12,
+                    iat: 0.015,
+                    fcnt: 0,
+                    timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+                };
+                showToast("🚨 Rogue Attack Node Injected!", "error");
+            }
+            processPacket(pkt);
+        }
+
+        function injectCustomFormPacket() {
+            const pkt = {
+                device_id: document.getElementById('inj-device').value,
+                rssi: parseFloat(document.getElementById('inj-rssi').value),
+                snr: parseFloat(document.getElementById('inj-snr').value),
+                sf: parseInt(document.getElementById('inj-sf').value),
+                iat: parseFloat(document.getElementById('inj-iat').value),
+                fcnt: parseInt(document.getElementById('inj-fcnt').value),
+                timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            };
+
+            processPacket(pkt);
+
+            const isAnom = pkt.pred === 1;
+            document.getElementById('injector-result-container').innerHTML = `
+                <div class="p-4 rounded-xl border ${isAnom ? 'bg-rose-950/40 border-rose-500/50' : 'bg-emerald-950/40 border-emerald-500/50'} space-y-2 font-mono text-xs">
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-300 font-bold">Node: ${pkt.device_id}</span>
+                        <span class="px-2 py-0.5 rounded font-bold ${isAnom ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}">
+                            ${isAnom ? '🚨 ANOMALY CATCH' : '🟢 NOMINAL'}
+                        </span>
+                    </div>
+                    <p class="text-slate-400">Confidence: <strong class="text-cyan-400">${isAnom ? '99.2% Threat' : '98.8% Clean'}</strong></p>
+                    <p class="text-slate-400">Feature Delta: <span class="${isAnom ? 'text-rose-400' : 'text-emerald-400'}">${isAnom ? 'Severe RSSI degradation & IAT < 0.1s burst' : 'Within normal baselines'}</span></p>
+                </div>
+            `;
+            showToast(`Custom Packet Processed: ${pkt.device_id}`, isAnom ? 'error' : 'success');
+        }
+
+        function quarantineDevice(devId) {
+            if (devices[devId]) {
+                devices[devId].quarantined = true;
+                devices[devId].status = 'QUARANTINED';
+                devices[devId].riskScore = 100;
+                renderDeviceCards();
+                showToast(`Node '${devId}' QUARANTINED at Gateway Socket!`, 'success');
+            }
+        }
+
+        function renderDeviceCards() {
+            const grid = document.getElementById('device-cards-grid');
+            let html = "";
+
+            Object.values(devices).forEach(dev => {
+                let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">NOMINAL</span>`;
+                let borderClass = "border-slate-800";
+                
+                if (dev.status === 'ATTACK_DETECTED') {
+                    statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-rose-500/20 text-rose-400 border border-rose-500/40 glow-red">🚨 THREAT</span>`;
+                    borderClass = "border-rose-500/50";
+                } else if (dev.status === 'QUARANTINED') {
+                    statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/20 text-amber-400 border border-amber-500/40">🔒 QUARANTINED</span>`;
+                    borderClass = "border-amber-500/50";
+                }
+
+                html += `
+                    <div class="glass-panel p-4 rounded-xl ${borderClass} space-y-3 font-mono">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-microchip ${dev.id === 'Rogue_X1' ? 'text-rose-400' : 'text-cyan-400'}"></i>
+                                <span class="font-bold text-sm text-white">${dev.id}</span>
+                            </div>
+                            ${statusBadge}
+                        </div>
+
+                        <div class="space-y-1.5 text-xs text-slate-300">
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">Risk Score:</span>
+                                <span class="font-bold ${dev.riskScore > 50 ? 'text-rose-400' : 'text-emerald-400'}">${dev.riskScore}%</span>
+                            </div>
+                            <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                                <div class="h-1.5 ${dev.riskScore > 50 ? 'bg-rose-500' : 'bg-emerald-400'}" style="width: ${dev.riskScore}%"></div>
+                            </div>
+                            <div class="flex justify-between text-[11px] pt-1">
+                                <span class="text-slate-500">RSSI: <strong class="text-slate-200">${dev.lastRssi} dBm</strong></span>
+                                <span class="text-slate-500">IAT: <strong class="text-slate-200">${dev.lastIat}s</strong></span>
+                            </div>
+                            <div class="flex justify-between text-[11px]">
+                                <span class="text-slate-500">FCnt: <strong class="text-slate-200">${dev.fcnt}</strong></span>
+                                <span class="text-slate-500">Packets: <strong class="text-slate-200">${dev.pkts}</strong></span>
+                            </div>
+                        </div>
+
+                        <button onclick="quarantineDevice('${dev.id}')" ${dev.quarantined ? 'disabled' : ''} class="w-full py-1.5 rounded-lg text-xs font-bold transition-all ${dev.quarantined ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30'}">
+                            ${dev.quarantined ? 'Quarantined' : 'Quarantine Node'}
+                        </button>
+                    </div>
+                `;
+            });
+
+            grid.innerHTML = html;
+        }
+
+        function triggerSOCCopilot(pkt, dev) {
+            const incId = `INC-${Math.floor(1000 + Math.random() * 9000)}`;
+            const iptablesRule = `iptables -A INPUT -m string --algo bm --string '${pkt.device_id}' -j DROP`;
+            const macCommand = `LORA_MAC_REJECT_DEVICE --dev-eui ${pkt.device_id} --reason JOIN_DHCP_REPLAY_DETECTED`;
+
+            document.getElementById('soc-copilot-container').innerHTML = `
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 bg-slate-900/90 p-4 rounded-xl border border-rose-500/40">
+                    <div class="lg:col-span-7 space-y-2">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-mono font-bold">HIGH CONFIDENCE THREAT</span>
+                            <span class="text-xs text-slate-400 font-mono">Incident ID: <strong class="text-white">${incId}</strong></span>
+                        </div>
+                        <h4 class="text-sm font-bold text-rose-400 font-mono">Rapid Sequence Spoofing & Join Replay Catch</h4>
+                        <p class="text-xs text-slate-300 leading-relaxed font-mono">
+                            Node <code class="text-amber-400 font-bold">${pkt.device_id}</code> caught executing transmission bursts (IAT: <strong>${pkt.iat}s</strong>) 
+                            with severe PHY signal drift (RSSI: <strong>${pkt.rssi} dBm</strong>, SNR: <strong>${pkt.snr} dB</strong>). 
+                            Target intercepted before completing gateway join/DHCP handshake.
+                        </p>
+                    </div>
+
+                    <div class="lg:col-span-5 space-y-2 flex flex-col justify-between">
+                        <div>
+                            <span class="text-[10px] uppercase font-mono text-slate-400 block mb-1">Generated Gateway Isolation Rules</span>
+                            <div class="bg-slate-950 p-2 rounded border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto space-y-1">
+                                <div><code>${iptablesRule}</code></div>
+                                <div><code>${macCommand}</code></div>
+                            </div>
+                        </div>
+
+                        <button onclick="quarantineDevice('${pkt.device_id}')" class="w-full py-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-slate-950 font-bold text-xs transition-all shadow-lg shadow-rose-500/20">
+                            Enforce Immediate Socket Quarantine
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateKPIs() {
+            document.getElementById('kpi-total').innerText = totalPackets.toLocaleString();
+            document.getElementById('kpi-clean').innerText = cleanPackets.toLocaleString();
+            document.getElementById('kpi-rogue').innerText = roguePackets.toLocaleString();
+
+            let pct = totalPackets > 0 ? ((roguePackets / totalPackets) * 100).toFixed(1) : "0.0";
+            document.getElementById('kpi-threat-pct').innerText = `${pct}% Rate`;
+            document.getElementById('kpi-attacker').innerText = roguePackets > 0 ? "Rogue_X1" : "None Detected";
+        }
+
+        function renderTable() {
+            const filter = document.getElementById('device-filter').value;
+            const tbody = document.getElementById('packet-table-body');
+            let html = "";
+
+            let filteredPkts = packetHistory;
+            if (filter !== 'ALL') {
+                filteredPkts = packetHistory.filter(p => p.device_id === filter);
+            }
+
+            filteredPkts.slice(0, 15).forEach(pkt => {
+                const isAnom = pkt.pred === 1;
+                html += `
+                    <tr class="${isAnom ? 'bg-rose-950/20 text-rose-200' : 'hover:bg-slate-800/40 text-slate-300'} transition-colors">
+                        <td class="p-2.5 text-slate-400">${pkt.timestamp}</td>
+                        <td class="p-2.5 font-bold ${isAnom ? 'text-rose-400' : 'text-slate-200'}">${pkt.device_id}</td>
+                        <td class="p-2.5">${pkt.rssi}</td>
+                        <td class="p-2.5">${pkt.snr}</td>
+                        <td class="p-2.5">${pkt.sf}</td>
+                        <td class="p-2.5">${pkt.iat}</td>
+                        <td class="p-2.5">${pkt.fcnt}</td>
+                        <td class="p-2.5">
+                            ${isAnom 
+                                ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">🚨 ROGUE CATCH</span>'
+                                : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">🟢 CLEAN</span>'}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function initCharts() {
+            const scatterLayout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: { l: 35, r: 15, t: 10, b: 35 },
+                xaxis: { title: 'RSSI (dBm)', color: '#64748b', gridcolor: '#1e293b' },
+                yaxis: { title: 'SNR (dB)', color: '#64748b', gridcolor: '#1e293b' },
+                showlegend: true,
+                legend: { orientation: 'h', y: 1.1, font: { color: '#94a3b8' } }
+            };
+
+            Plotly.newPlot('scatter-chart', [
+                { x: [], y: [], mode: 'markers', name: 'Clean Devices', marker: { color: '#00ff88', size: 7 } },
+                { x: [], y: [], mode: 'markers', name: 'Rogue Node', marker: { color: '#ff3366', size: 9, symbol: 'diamond' } }
+            ], scatterLayout, { responsive: true, displayModeBar: false });
+
+            const donutLayout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: { l: 15, r: 15, t: 10, b: 20 },
+                showlegend: true,
+                legend: { orientation: 'h', y: -0.1, font: { color: '#94a3b8' } },
+                hole: 0.5
+            };
+
+            Plotly.newPlot('donut-chart', [{
+                values: [1, 0],
+                labels: ['Normal Traffic', 'Rogue Threats'],
+                type: 'pie',
+                marker: { colors: ['#00ff88', '#ff3366'] }
+            }], donutLayout, { responsive: true, displayModeBar: false });
+        }
+
+        function updateCharts() {
+            let cX = [], cY = [], rX = [], rY = [];
+
+            packetHistory.forEach(p => {
+                if (p.pred === 1) { rX.push(p.rssi); rY.push(p.snr); }
+                else { cX.push(p.rssi); cY.push(p.snr); }
+            });
+
+            Plotly.restyle('scatter-chart', { x: [cX], y: [cY] }, [0]);
+            Plotly.restyle('scatter-chart', { x: [rX], y: [rY] }, [1]);
+
+            Plotly.restyle('donut-chart', {
+                values: [[cleanPackets, roguePackets]]
+            }, [0]);
+        }
+
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let bgClass = "bg-slate-900 border-cyan-500/40 text-cyan-300";
+            if (type === 'error') bgClass = "bg-slate-900 border-rose-500/40 text-rose-300";
+            if (type === 'success') bgClass = "bg-slate-900 border-emerald-500/40 text-emerald-300";
+
+            toast.className = `px-4 py-3 rounded-xl border ${bgClass} shadow-2xl text-xs font-mono font-semibold pointer-events-auto transition-all transform translate-y-2 opacity-0 flex items-center gap-2`;
+            toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${msg}`;
+
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
+            setTimeout(() => {
+                toast.classList.add('opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
