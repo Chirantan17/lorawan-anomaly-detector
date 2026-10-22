@@ -1,8 +1,8 @@
-# src/soc_copilot.py
-import os
+# soc_copilot.py
 import json
+import time
 
-def generate_soc_analysis(alert_record: dict, model_name: str = "XGBoost") -> dict:
+def generate_soc_analysis(alert_record: dict, model_name: str = "XGBoost Engine") -> dict:
     """
     Ingests an anomalous telemetry packet and returns incident root-cause analysis
     and auto-generated network mitigation rules.
@@ -13,7 +13,6 @@ def generate_soc_analysis(alert_record: dict, model_name: str = "XGBoost") -> di
     iat = alert_record.get("inter_arrival_time", 0.01)
     fcnt = alert_record.get("fcnt", 0)
     
-    # Heuristic diagnostic determination
     if iat < 0.1 and fcnt in [0, 1, 65535]:
         attack_type = "Rapid Sequence Spoofing & Replay Attack"
         risk_score = "CRITICAL (98.4%)"
@@ -34,8 +33,11 @@ def generate_soc_analysis(alert_record: dict, model_name: str = "XGBoost") -> di
         mitigation_cmd = f"gateway-cli set-power-offset --device {dev_id} --step +3dBm"
         mac_action = f"LORA_MAC_FORCE_ADR --dev-eui {dev_id} --target-sf 12"
 
+    ts = alert_record.get("timestamp", time.time())
+    incident_suffix = int(ts) % 10000
+
     return {
-        "incident_id": f"INC-{int(alert_record.get('timestamp', 0)) % 10000:04d}",
+        "incident_id": f"INC-{incident_suffix:04d}",
         "device_id": dev_id,
         "detector_engine": model_name,
         "threat_category": attack_type,
@@ -46,6 +48,13 @@ def generate_soc_analysis(alert_record: dict, model_name: str = "XGBoost") -> di
     }
 
 if __name__ == "__main__":
-    sample_alert = {"device_id": "Rogue_X1", "rssi": -118, "snr": -8.5, "inter_arrival_time": 0.02, "fcnt": 0, "timestamp": 1700000000}
+    sample_alert = {
+        "device_id": "Rogue_X1",
+        "rssi": -118,
+        "snr": -8.5,
+        "inter_arrival_time": 0.02,
+        "fcnt": 0,
+        "timestamp": time.time()
+    }
     report = generate_soc_analysis(sample_alert)
     print(json.dumps(report, indent=2))

@@ -1,8 +1,7 @@
-# src/gateway_socket.py
+# gateway_socket.py
 import socket
 import json
 import time
-import asyncio
 from collections import defaultdict
 
 class LoRaWANSocketGateway:
@@ -23,7 +22,7 @@ class LoRaWANSocketGateway:
         if state["last_time"] is not None:
             iat = max(0.001, round(now - state["last_time"], 4))
         else:
-            iat = 30.0  # Default nominal baseline
+            iat = 15.0  # Default nominal baseline
             
         # Calculate Frame Counter Delta (FCnt Jump)
         curr_fcnt = payload.get("fcnt", 0)
@@ -33,7 +32,6 @@ class LoRaWANSocketGateway:
         state["last_time"] = now
         state["last_fcnt"] = curr_fcnt
         
-        # Output standardized feature vector for ML engine
         return {
             "device_id": dev_id,
             "rssi": payload.get("rssi", -85.0),
@@ -63,7 +61,6 @@ class LoRaWANSocketGateway:
         finally:
             sock.close()
 
-# Mock packet client simulator for testing
 def simulate_udp_stream(host="127.0.0.1", port=9999, count=5):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sample_pkts = [
@@ -73,7 +70,7 @@ def simulate_udp_stream(host="127.0.0.1", port=9999, count=5):
     ]
     for pkt in sample_pkts:
         sock.sendto(json.dumps(pkt).encode("utf-8"), (host, port))
-        time.sleep(0.1)
+        time.sleep(0.2)
     sock.close()
 
 if __name__ == "__main__":
