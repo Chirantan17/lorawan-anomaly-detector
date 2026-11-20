@@ -1,0 +1,434 @@
+﻿<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LoRaWAN Master Top-to-Bottom Decision Flowchart</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+          colors: {
+            console: { base: '#060a12', panel: '#0c1322', surface: '#131e36', border: '#1e2e4d', clean: '#10b981', alert: '#f43f5e', accent: '#3b82f6' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html { scroll-behavior: smooth; }
+    body { background-color: #060a12; color: #e2e8f0; }
+    .fc-node { transition: all 0.35s ease; opacity: 0.32; cursor: pointer; }
+    .fc-node.visited { opacity: 0.88; }
+    .fc-node.active-green { opacity: 1; filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.45)); }
+    .fc-node.active-red { opacity: 1; filter: drop-shadow(0 0 18px rgba(244, 63, 94, 0.55)); }
+    .fc-node.active-blue { opacity: 1; filter: drop-shadow(0 0 16px rgba(59, 130, 246, 0.45)); }
+  </style>
+</head>
+<body class="min-h-screen font-sans pb-28">
+
+  <!-- STICKY NAVIGATION & PATH SIMULATOR HEADER -->
+  <header class="sticky top-0 z-50 bg-console-panel/95 backdrop-blur-md border-b border-console-border px-5 py-3 shadow-2xl">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span class="px-2.5 py-1 rounded text-xs font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">
+          MASTER FLOWCHART
+        </span>
+        <select id="pathSelector" onchange="selectPath()" class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold bg-console-surface border border-console-border text-white focus:outline-none">
+          <option value="normal">Trace 1: Normal Packet (All Diamonds Pass → Cleared)</option>
+          <option value="dos">Trace 2: DoS Burst (Fails Diamond D2: Duty Cycle ≤ 1%)</option>
+          <option value="replay">Trace 3: Replay Attack (Fails Diamond D1: ΔFCnt &gt; 0)</option>
+          <option value="tdoa">Trace 4: Spatial Spoof (Fails Diamond D3: TDoA ≤ 1,804 ns)</option>
+          <option value="jamming">Trace 5: RF Jamming (Fails Diamond D4: SNR ≥ -8 dB)</option>
+        </select>
+      </div>
+
+      <!-- Manual + Auto Controls -->
+      <div class="flex items-center gap-2 bg-console-base border border-console-border rounded-xl p-1.5">
+        <button onclick="prevStep()" id="btnPrev" class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-console-surface text-slate-300 hover:text-white disabled:opacity-40 transition">
+          ◀ Back
+        </button>
+        <button onclick="togglePlay()" id="btnPlay" class="px-4 py-1.5 rounded-lg text-xs font-mono font-bold bg-blue-500 text-white hover:bg-blue-400 transition">
+          ▶ Play Trace
+        </button>
+        <button onclick="nextStep()" id="btnNext" class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-console-surface text-slate-300 hover:text-white disabled:opacity-40 transition">
+          Next ▶
+        </button>
+        <button onclick="resetFlow()" class="px-2.5 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-white" title="Reset">↺</button>
+        <div class="px-3 py-1 rounded bg-blue-500/15 border border-blue-500/30 text-xs font-mono font-bold text-blue-400">
+          Node <span id="stepCounter">1</span> / <span id="stepTotal">9</span>
+        </div>
+      </div>
+
+      <!-- 4-Portal Switcher -->
+      <nav class="flex items-center gap-1.5 bg-console-base border border-console-border rounded-xl p-1 text-xs font-mono">
+        <a href="architecture_blueprint.html" class="px-2.5 py-1.5 rounded-lg text-blue-400 hover:bg-blue-500/10">🏛️ Arch</a>
+        <a href="end_to_end_flowchart.html" class="px-2.5 py-1.5 rounded-lg bg-purple-500 text-white font-bold">🔀 Flowchart</a>
+        <a href="normal_node.html" class="px-2.5 py-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/10">Normal</a>
+        <a href="rogue_node.html" class="px-2.5 py-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10">Rogue</a><a href="novelty_comparison.html" class="px-2.5 py-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10">✨ Novelty</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- MAIN TWO-COLUMN LAYOUT -->
+  <div class="max-w-7xl mx-auto px-5 pt-6 grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
+
+    <!-- LEFT 8 COLUMNS: TOP-TO-BOTTOM CLASSIC FLOWCHART SVG -->
+    <div class="lg:col-span-8 bg-console-panel border border-console-border rounded-2xl p-4 shadow-2xl overflow-hidden">
+      <svg id="fcSvg" viewBox="0 0 860 2260" class="w-full h-auto select-none">
+        <defs>
+          <marker id="arrGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+          </marker>
+          <marker id="arrRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#f43f5e" />
+          </marker>
+          <marker id="arrBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#3b82f6" />
+          </marker>
+        </defs>
+
+        <!-- ==================== NODE 1: START (OVAL) ==================== -->
+        <g id="node-start" class="fc-node active-blue" onclick="jumpTo('start')">
+          <rect x="240" y="25" width="240" height="64" rx="32" fill="#0d1b36" stroke="#3b82f6" stroke-width="2.5"/>
+          <text x="360" y="53" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="13" font-weight="800">START: Uplink Frame</text>
+          <text x="360" y="72" text-anchor="middle" fill="#93c5fd" font-family="JetBrains Mono" font-size="10">Sensor Broadcasts (865 MHz)</text>
+        </g>
+
+        <line x1="360" y1="89" x2="360" y2="145" stroke="#3b82f6" stroke-width="2.5" marker-end="url(#arrBlue)"/>
+
+        <!-- ==================== NODE 2: MULTI-GATEWAY & DUAL INGESTION (PROCESS) ==================== -->
+        <g id="node-ingest" class="fc-node" onclick="jumpTo('ingest')">
+          <rect x="175" y="148" width="370" height="84" rx="10" fill="#090f1d" stroke="#3b82f6" stroke-width="2"/>
+          <text x="360" y="176" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11" font-weight="700">PROCESS 1 • DUAL-PATH INGESTION</text>
+          <text x="360" y="196" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans" font-size="13" font-weight="700">GW_A &amp; GW_B Stamp t_A, t_B → UDP :9999 + MQTT :1883</text>
+          <text x="360" y="216" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">Correlated by (DevAddr, FCnt) • 64KB Buffer</text>
+        </g>
+
+        <line x1="360" y1="232" x2="360" y2="288" stroke="#3b82f6" stroke-width="2.5" marker-end="url(#arrBlue)"/>
+
+        <!-- ==================== NODE 3: M/M/1 QUEUE & FEATURE EXTRACTION (PROCESS) ==================== -->
+        <g id="node-features" class="fc-node" onclick="jumpTo('features')">
+          <rect x="175" y="291" width="370" height="84" rx="10" fill="#090f1d" stroke="#3b82f6" stroke-width="2"/>
+          <text x="360" y="319" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11" font-weight="700">PROCESS 2 • STATEFUL FEATURE VECTOR</text>
+          <text x="360" y="339" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans" font-size="13" font-weight="700">M/M/1 Queue (ρ = 0.142) → Compute Δt &amp; ΔFCnt</text>
+          <text x="360" y="359" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">Vector: [RSSI, SNR, SF, Δt, FCnt, Len, Freq]</text>
+        </g>
+
+        <line x1="360" y1="375" x2="360" y2="432" stroke="#3b82f6" stroke-width="2.5" marker-end="url(#arrBlue)"/>
+
+        <!-- ==================== NODE 4: HYBRID ML ENGINE (PROCESS) ==================== -->
+        <g id="node-ml" class="fc-node" onclick="jumpTo('ml')">
+          <rect x="175" y="435" width="370" height="84" rx="10" fill="#090f1d" stroke="#a855f7" stroke-width="2"/>
+          <text x="360" y="463" text-anchor="middle" fill="#c084fc" font-family="JetBrains Mono" font-size="11" font-weight="700">PROCESS 3 • HYBRID ML SCORING (1.18 MS)</text>
+          <text x="360" y="483" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans" font-size="13" font-weight="700">XGBoost Classifier + Isolation Forest Novelty</text>
+          <text x="360" y="503" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">Outputs Threat Probability &amp; Outlier Path Score</text>
+        </g>
+
+        <line x1="360" y1="519" x2="360" y2="582" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrGreen)"/>
+
+        <!-- ==================== DIAMOND D1: MONOTONIC COUNTER CHECK ==================== -->
+        <g id="node-d1" class="fc-node" onclick="jumpTo('d1')">
+          <polygon points="360,585 525,655 360,725 195,655" fill="#090f1d" stroke="#10b981" stroke-width="2.5"/>
+          <text x="360" y="647" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="800">DECISION D1:</text>
+          <text x="360" y="666" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">ΔFCnt &gt; 0 (Monotonic)?</text>
+        </g>
+
+        <!-- D1 NO -> Replay Action -->
+        <line x1="525" y1="655" x2="625" y2="655" stroke="#f43f5e" stroke-width="2" marker-end="url(#arrRed)"/>
+        <text x="568" y="646" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10" font-weight="800">NO</text>
+        <g id="node-act-replay" class="fc-node">
+          <rect x="628" y="622" width="210" height="66" rx="8" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+          <text x="733" y="647" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10.5" font-weight="800">✖ REPLAY DETECTED</text>
+          <text x="733" y="666" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9">Reject Device &amp; Drop</text>
+        </g>
+        <!-- Line down from act-replay to Quarantine -->
+        <path d="M 733 688 L 733 1775 L 705 1775" fill="none" stroke="#f43f5e" stroke-width="1.5" stroke-dasharray="5 4"/>
+
+        <!-- D1 YES -> D2 -->
+        <line x1="360" y1="725" x2="360" y2="795" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrGreen)"/>
+        <text x="382" y="762" fill="#10b981" font-family="JetBrains Mono" font-size="10" font-weight="800">YES</text>
+
+        <!-- ==================== DIAMOND D2: DUTY CYCLE & ALOHA CHECK ==================== -->
+        <g id="node-d2" class="fc-node" onclick="jumpTo('d2')">
+          <polygon points="360,798 525,868 360,938 195,868" fill="#090f1d" stroke="#10b981" stroke-width="2.5"/>
+          <text x="360" y="860" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="800">DECISION D2:</text>
+          <text x="360" y="879" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">Duty ≤ 1% &amp; Δt ≥ 0.1s?</text>
+        </g>
+
+        <!-- D2 NO -> DoS Action -->
+        <line x1="525" y1="868" x2="625" y2="868" stroke="#f43f5e" stroke-width="2" marker-end="url(#arrRed)"/>
+        <text x="568" y="859" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10" font-weight="800">NO</text>
+        <g id="node-act-dos" class="fc-node">
+          <rect x="628" y="835" width="210" height="66" rx="8" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+          <text x="733" y="860" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10.5" font-weight="800">✖ DOS BURST / ALOHA</text>
+          <text x="733" y="879" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9">UDP Drop + Duty Cap</text>
+        </g>
+        <path d="M 733 901 L 733 1775" fill="none" stroke="#f43f5e" stroke-width="1.5" stroke-dasharray="5 4"/>
+
+        <!-- D2 YES -> D3 -->
+        <line x1="360" y1="938" x2="360" y2="1008" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrGreen)"/>
+        <text x="382" y="975" fill="#10b981" font-family="JetBrains Mono" font-size="10" font-weight="800">YES</text>
+
+        <!-- ==================== DIAMOND D3: TDOA SPEED-OF-LIGHT CHECK ==================== -->
+        <g id="node-d3" class="fc-node" onclick="jumpTo('d3')">
+          <polygon points="360,1011 525,1081 360,1151 195,1081" fill="#090f1d" stroke="#10b981" stroke-width="2.5"/>
+          <text x="360" y="1073" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="800">DECISION D3:</text>
+          <text x="360" y="1092" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">|t_A − t_B| ≤ 1,804 ns?</text>
+        </g>
+
+        <!-- D3 NO -> TDoA Spoof Action -->
+        <line x1="525" y1="1081" x2="625" y2="1081" stroke="#f43f5e" stroke-width="2" marker-end="url(#arrRed)"/>
+        <text x="568" y="1072" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10" font-weight="800">NO</text>
+        <g id="node-act-tdoa" class="fc-node">
+          <rect x="628" y="1048" width="210" height="66" rx="8" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+          <text x="733" y="1073" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10.5" font-weight="800">✖ SPATIAL SPOOF</text>
+          <text x="733" y="1092" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9">Revoke Proxy Session</text>
+        </g>
+        <path d="M 733 1114 L 733 1775" fill="none" stroke="#f43f5e" stroke-width="1.5" stroke-dasharray="5 4"/>
+
+        <!-- D3 YES -> D4 -->
+        <line x1="360" y1="1151" x2="360" y2="1221" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrGreen)"/>
+        <text x="382" y="1188" fill="#10b981" font-family="JetBrains Mono" font-size="10" font-weight="800">YES</text>
+
+        <!-- ==================== DIAMOND D4: SNR / RF JAMMING CHECK ==================== -->
+        <g id="node-d4" class="fc-node" onclick="jumpTo('d4')">
+          <polygon points="360,1224 525,1294 360,1364 195,1294" fill="#090f1d" stroke="#10b981" stroke-width="2.5"/>
+          <text x="360" y="1286" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="800">DECISION D4:</text>
+          <text x="360" y="1305" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">SNR ≥ -8 dB &amp; Valid Ch?</text>
+        </g>
+
+        <!-- D4 NO -> Jamming Action -->
+        <line x1="525" y1="1294" x2="625" y2="1294" stroke="#f43f5e" stroke-width="2" marker-end="url(#arrRed)"/>
+        <text x="568" y="1285" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10" font-weight="800">NO</text>
+        <g id="node-act-jamming" class="fc-node">
+          <rect x="628" y="1261" width="210" height="66" rx="8" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+          <text x="733" y="1286" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10.5" font-weight="800">✖ RF JAMMING</text>
+          <text x="733" y="1305" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9">LinkADRReq (CID 0x03)</text>
+        </g>
+        <path d="M 733 1327 L 733 1775" fill="none" stroke="#f43f5e" stroke-width="1.5" stroke-dasharray="5 4"/>
+
+        <!-- D4 YES -> D5 -->
+        <line x1="360" y1="1364" x2="360" y2="1434" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrGreen)"/>
+        <text x="382" y="1401" fill="#10b981" font-family="JetBrains Mono" font-size="10" font-weight="800">YES</text>
+
+        <!-- ==================== DIAMOND D5: HYBRID ML CONSENSUS GATE ==================== -->
+        <g id="node-d5" class="fc-node" onclick="jumpTo('d5')">
+          <polygon points="360,1437 525,1507 360,1577 195,1507" fill="#090f1d" stroke="#10b981" stroke-width="2.5"/>
+          <text x="360" y="1499" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="800">DECISION D5:</text>
+          <text x="360" y="1518" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">XGBoost &amp; IsoForest Clean?</text>
+        </g>
+
+        <!-- D5 NO -> Novelty Quarantine -->
+        <line x1="525" y1="1507" x2="625" y2="1507" stroke="#f43f5e" stroke-width="2" marker-end="url(#arrRed)"/>
+        <text x="568" y="1498" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10" font-weight="800">NO</text>
+        <g id="node-act-novel" class="fc-node">
+          <rect x="628" y="1474" width="210" height="66" rx="8" fill="#2b0c16" stroke="#f43f5e" stroke-width="1.5"/>
+          <text x="733" y="1499" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10.5" font-weight="800">✖ ZERO-DAY OUTLIER</text>
+          <text x="733" y="1518" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9">Flag for Operator Review</text>
+        </g>
+
+        <!-- D5 YES -> NORMAL CLEARANCE -->
+        <line x1="360" y1="1577" x2="360" y2="1655" stroke="#10b981" stroke-width="3" marker-end="url(#arrGreen)"/>
+        <text x="382" y="1618" fill="#10b981" font-family="JetBrains Mono" font-size="10" font-weight="800">YES</text>
+
+        <!-- ==================== TERMINAL LEFT: NORMAL DELIVERY ==================== -->
+        <g id="node-end-normal" class="fc-node">
+          <rect x="175" y="1658" width="370" height="84" rx="12" fill="#0d2620" stroke="#10b981" stroke-width="2.5"/>
+          <text x="360" y="1688" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="12.5" font-weight="800">✔ CLEARED: NORMAL TRAFFIC</text>
+          <text x="360" y="1708" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10.5">Log SQLite telemetry_logs • Deliver to App Server</text>
+          <text x="360" y="1726" text-anchor="middle" fill="#34d399" font-family="JetBrains Mono" font-size="9.5">Zero Downlink Overhead (Battery Preserved)</text>
+        </g>
+
+        <!-- ==================== TERMINAL RIGHT: QUARANTINE & CONTAINMENT ==================== -->
+        <g id="node-end-quarantine" class="fc-node">
+          <rect x="440" y="1775" width="395" height="90" rx="12" fill="#2b0c16" stroke="#f43f5e" stroke-width="2.5"/>
+          <text x="637" y="1805" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="12.5" font-weight="800">✖ QUARANTINED &amp; CONTAINED</text>
+          <text x="637" y="1825" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10.5">Blacklist Device in SQLite • Apply Firewall / MAC Rule</text>
+          <text x="637" y="1844" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">Pure ALOHA Channel Restored (G ≤ 0.08)</text>
+        </g>
+
+        <!-- Final Convergence to END OVAL -->
+        <line x1="360" y1="1742" x2="360" y2="1930" stroke="#10b981" stroke-width="2"/>
+        <line x1="637" y1="1865" x2="637" y2="1930" stroke="#f43f5e" stroke-width="2"/>
+        <line x1="360" y1="1930" x2="637" y2="1930" stroke="#64748b" stroke-width="2"/>
+        <line x1="498" y1="1930" x2="498" y2="1980" stroke="#3b82f6" stroke-width="2.5" marker-end="url(#arrBlue)"/>
+
+        <g id="node-stop" class="fc-node">
+          <rect x="378" y="1984" width="240" height="64" rx="32" fill="#0d1b36" stroke="#3b82f6" stroke-width="2.5"/>
+          <text x="498" y="2012" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="13" font-weight="800">END: Audit Complete</text>
+          <text x="498" y="2031" text-anchor="middle" fill="#93c5fd" font-family="JetBrains Mono" font-size="10">Ready for Next Frame</text>
+        </g>
+
+      </svg>
+    </div>
+
+    <!-- RIGHT 4 COLUMNS: STICKY FLOWCHART NARRATOR -->
+    <aside class="lg:col-span-4 lg:sticky lg:top-20 space-y-4">
+      <div class="bg-console-panel border border-purple-500/40 rounded-2xl p-5 shadow-2xl">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-mono font-bold uppercase tracking-wider text-purple-400">🔀 Flowchart Trace Guide</span>
+          <span id="badgeStep" class="text-xs font-mono px-2 py-0.5 rounded bg-purple-500/15 text-purple-300">Step 1</span>
+        </div>
+        <h2 id="guideTitle" class="text-lg font-extrabold text-white mb-2"></h2>
+        <p id="guideSpeech" class="text-sm text-slate-300 leading-relaxed mb-4"></p>
+
+        <div class="bg-console-base border border-console-border rounded-xl p-3.5 mb-4">
+          <div class="text-[11px] font-mono uppercase text-blue-400 mb-1">Decision Logic / Outcome</div>
+          <p id="guideDetail" class="text-xs font-mono text-slate-200 leading-relaxed"></p>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-console-border">
+          <button onclick="prevStep()" class="text-xs font-mono text-slate-400 hover:text-white">← Back</button>
+          <div class="flex gap-1.5" id="stepDots"></div>
+          <button onclick="nextStep()" class="text-xs font-mono text-blue-400 font-bold hover:text-blue-300">Next →</button>
+        </div>
+      </div>
+
+      <!-- Legend Card -->
+      <div class="bg-console-panel border border-console-border rounded-2xl p-4 text-xs font-mono text-slate-400 space-y-2">
+        <div class="text-slate-200 font-bold uppercase text-[11px]">Flowchart Symbol Key</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded-full border border-blue-500 text-blue-400">Oval</span> Start / End Terminal</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded border border-blue-500 text-slate-200">Rect</span> Ingestion &amp; ML Processing</div>
+        <div class="flex items-center gap-2"><span class="px-2 py-0.5 border border-emerald-500 text-emerald-400">◇ Diamond</span> Binary Protocol Decision Gate</div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    const TRACES = {
+      normal: [
+        { id: "node-start", type: "blue", title: "1. START: Sensor Uplink Broadcast", speech: "\"Each uplink enters at the START state: a Class A sensor wakes up and transmits a LoRaWAN frame on 865.0625 MHz.\"", detail: "Entry point for all network traffic." },
+        { id: "node-ingest", type: "blue", title: "2. Dual-Path Gateway Ingestion", speech: "\"Gateways A and B stamp nanosecond arrival times and forward the packet over UDP :9999 and ChirpStack MQTT :1883.\"", detail: "64KB socket buffer captures raw + decoded metadata." },
+        { id: "node-features", type: "blue", title: "3. M/M/1 Queue & Feature Vector", speech: "\"The packet passes through our non-blocking M/M/1 queue (ρ = 0.142) and builds the 7-D feature vector with Δt and ΔFCnt.\"", detail: "7 features ready for parallel ML + heuristic evaluation." },
+        { id: "node-ml", type: "blue", title: "4. Hybrid ML Scoring (1.18 ms)", speech: "\"XGBoost and Isolation Forest score the vector in 1.18 milliseconds, outputting 0.4% threat probability.\"", detail: "Statistical confidence passes to the deterministic decision diamonds." },
+        { id: "node-d1", type: "green", title: "5. Decision D1: Monotonic FCnt?", speech: "\"First decision diamond checks ΔFCnt > 0. Since FCnt incremented cleanly (+1), it branches YES downward.\"", detail: "D1 = YES (No replay detected)." },
+        { id: "node-d2", type: "green", title: "6. Decision D2: Duty Cycle ≤ 1%?", speech: "\"Second diamond checks airtime duty cycle (0.34% ≤ 1%) and inter-arrival time (15.02s ≥ 0.10s). Branches YES.\"", detail: "D2 = YES (Pure ALOHA channel protected)." },
+        { id: "node-d3", type: "green", title: "7. Decision D3: Speed-of-Light TDoA?", speech: "\"Third diamond checks multi-gateway arrival spread (412 ns ≤ 1,804 ns). Branches YES.\"", detail: "D3 = YES (Physical colocation confirmed)." },
+        { id: "node-d4", type: "green", title: "8. Decision D4 & D5: SNR & ML Consensus", speech: "\"SNR (+8.5 dB ≥ -8 dB) and ML consensus both pass YES, routing straight to Cleared Normal Traffic.\"", detail: "D4 = YES, D5 = YES." },
+        { id: "node-end-normal", type: "green", title: "9. END: Cleared & Delivered", speech: "\"The packet is logged in SQLite telemetry_logs and delivered to the Application Server with zero downlink battery drain.\"", detail: "Flow terminates cleanly at END oval." }
+      ],
+      dos: [
+        { id: "node-start", type: "blue", title: "1. START: Rogue Burst Broadcast", speech: "\"Rogue_X1 begins firing rapid bursts every 42 milliseconds on the sub-band.\"", detail: "Entry point of volumetric flood." },
+        { id: "node-ingest", type: "blue", title: "2. Raw UDP :9999 Capture", speech: "\"UDP Port 9999 catches every burst packet directly from the gateway before server drops occur.\"", detail: "64KB socket buffer absorbs burst without packet loss." },
+        { id: "node-features", type: "blue", title: "3. Stateful Δt Extraction", speech: "\"Layer 1 computes inter-arrival time Δt = 0.042 seconds against the sensor's history.\"", detail: "Δt = 0.042s flagged in 7-D feature vector." },
+        { id: "node-ml", type: "red", title: "4. Hybrid ML Flags Anomaly (99.2%)", speech: "\"XGBoost outputs 99.2% threat probability and Isolation Forest flags a severe outlier.\"", detail: "Escalates into deterministic decision diamonds." },
+        { id: "node-d1", type: "green", title: "5. Decision D1: Monotonic FCnt?", speech: "\"D1 checks ΔFCnt (+1). Because the counter incremented, D1 branches YES downward.\"", detail: "D1 = YES (Not a replay attack)." },
+        { id: "node-d2", type: "red", title: "6. Decision D2 FAILS (NO Branch!)", speech: "\"At Diamond D2 (Duty ≤ 1% & Δt ≥ 0.1s), 51.5% duty cycle and 0.042s IAT fail! The flow branches right (NO) to DoS Burst.\"", detail: "D2 = NO → Triggers Duty-Cycle DoS branch." },
+        { id: "node-act-dos", type: "red", title: "7. Action: UDP Drop + Duty Cap", speech: "\"Synthesizes exact-match iptables UDP drop rule and LORA_MAC_SET_DUTY_CYCLE throttle.\"", detail: "Immediate containment directive generated." },
+        { id: "node-end-quarantine", type: "red", title: "8. END: Quarantined & ALOHA Restored", speech: "\"Rogue_X1 is blacklisted in SQLite and Pure ALOHA channel load returns below G ≤ 0.08.\"", detail: "Flow terminates at Quarantine & Containment." }
+      ],
+      replay: [
+        { id: "node-start", type: "blue", title: "1. START: Replayed Frame Broadcast", speech: "\"Adversary re-transmits an old captured frame with Frame Counter rolled back to FCnt = 0.\"", detail: "Replay injection initiated." },
+        { id: "node-ingest", type: "blue", title: "2. Dual Ingestion Captures Header", speech: "\"UDP :9999 and MQTT :1883 capture the plaintext DevAddr and FCnt = 0.\"", detail: "No payload decryption needed." },
+        { id: "node-features", type: "blue", title: "3. Stateful ΔFCnt Calculation", speech: "\"Layer 1 subtracts last accepted FCnt (1042) from 0, producing ΔFCnt = -1042.\"", detail: "Negative ΔFCnt recorded in vector." },
+        { id: "node-ml", type: "red", title: "4. Hybrid ML Flags Anomaly (98.6%)", speech: "\"XGBoost flags the sequence rollback at 98.6% confidence in 1.18 ms.\"", detail: "Proceeds to Decision Diamonds." },
+        { id: "node-d1", type: "red", title: "5. Decision D1 FAILS Immediately (NO!)", speech: "\"At the very first diamond (D1: ΔFCnt > 0?), ΔFCnt = -1042 fails! The flow immediately exits right (NO) to Replay Detected.\"", detail: "D1 = NO → Caught at the first protocol gate." },
+        { id: "node-act-replay", type: "red", title: "6. Action: Reject Replayed Device", speech: "\"System emits LORA_MAC_REJECT_DEVICE and drops the stale session.\"", detail: "Prevents duplicate application triggers." },
+        { id: "node-end-quarantine", type: "red", title: "7. END: Quarantined in SQLite", speech: "\"Event is logged to security_alerts and the rogue stream is blacklisted.\"", detail: "Flow terminates at Quarantine." }
+      ],
+      tdoa: [
+        { id: "node-start", type: "blue", title: "1. START: Out-of-Region Proxy Relay", speech: "\"An attacker relays stolen credentials from outside our coverage region—with valid FCnt (+1)!\"", detail: "Key-compromise spatial spoof." },
+        { id: "node-ingest", type: "blue", title: "2. Multi-Gateway Nanosecond Stamps", speech: "\"Gateways A and B (540.8 m apart) record arrival timestamps t_A and t_B via UDP :9999.\"", detail: "Raw UDP preserves both timestamps before deduplication." },
+        { id: "node-features", type: "blue", title: "3. TDoA Spread Calculation", speech: "\"Layer 1 computes |t_A − t_B| = 2,229 ns (variance 425 ns), exceeding the 1,804 ns speed-of-light limit.\"", detail: "Spatial anomaly quantified." },
+        { id: "node-ml", type: "red", title: "4. Hybrid ML Flags Spatial Outlier", speech: "\"Isolation Forest and XGBoost flag the timing spread at 96.4% confidence.\"", detail: "Proceeds to Decision Diamonds." },
+        { id: "node-d1", type: "green", title: "5. D1 & D2 Pass (YES)", speech: "\"Because FCnt (+1) and Duty Cycle (0.35%) are valid, Diamonds D1 and D2 both branch YES!\"", detail: "Shows why software/rate checks alone are fooled." },
+        { id: "node-d3", type: "red", title: "6. Decision D3 FAILS (TDoA > 1,804 ns!)", speech: "\"At Diamond D3 (|t_A − t_B| ≤ 1,804 ns?), physics catches the proxy! The 2,229 ns delay branches right (NO) to Spatial Spoof.\"", detail: "D3 = NO → Speed-of-light geometry exposes impersonation." },
+        { id: "node-act-tdoa", type: "red", title: "7. Action: Revoke Proxy Session", speech: "\"System revokes the compromised session and blocks the proxy stream.\"", detail: "LORA_MAC_REVOKE_SESSION triggered." },
+        { id: "node-end-quarantine", type: "red", title: "8. END: Quarantined & Logged", speech: "\"Sybil_Node is quarantined in SQLite without needing payload decryption.\"", detail: "Flow terminates at Quarantine." }
+      ],
+      jamming: [
+        { id: "node-start", type: "blue", title: "1. START: RF Noise Flood", speech: "\"Active jammer floods 865.0625 MHz with continuous broadband interference.\"", detail: "Physical-layer denial of service." },
+        { id: "node-ingest", type: "blue", title: "2. Gateway Concentrator Telemetry", speech: "\"UDP :9999 captures degraded SNR (-12.0 dB) and RSSI (-122 dBm) from Gateway A.\"", detail: "Captures radio noise floor collapse." },
+        { id: "node-features", type: "blue", title: "3. SNR Drift Vector", speech: "\"Layer 1 registers a 20.5 dB drop below the +8.5 dB baseline.\"", detail: "Shannon channel capacity collapsed." },
+        { id: "node-ml", type: "red", title: "4. Hybrid ML Flags RF Anomaly", speech: "\"XGBoost and Isolation Forest score the RF drop at 94.8% High severity.\"", detail: "Proceeds to Decision Diamonds." },
+        { id: "node-d1", type: "green", title: "5. D1, D2 & D3 Pass (YES)", speech: "\"Diamonds D1 through D3 branch YES down the main trunk.\"", detail: "Isolates physical link quality in D4." },
+        { id: "node-d4", type: "red", title: "6. Decision D4 FAILS (SNR < -8 dB!)", speech: "\"At Diamond D4 (SNR ≥ -8 dB?), SNR = -12 dB fails and branches right (NO) to RF Jamming.\"", detail: "D4 = NO → Diagnoses active jamming." },
+        { id: "node-act-jamming", type: "red", title: "7. Action: LinkADRReq Channel Hop", speech: "\"Excludes jammed channel and issues LinkADRReq (CID 0x03) to shift honest nodes to SF12 / clean channels.\"", detail: "Standard LoRaWAN MAC remediation." },
+        { id: "node-end-quarantine", type: "red", title: "8. END: Channel Isolated & Logged", speech: "\"Jammed sub-band is quarantined and incident is recorded in SQLite.\"", detail: "Flow terminates at Containment." }
+      ]
+    };
+
+    let currentPath = 'normal';
+    let stepIdx = 0;
+    let playTimer = null;
+
+    function updateFlowchart(scroll = true) {
+      const steps = TRACES[currentPath];
+      const curr = steps[stepIdx];
+
+      document.getElementById('stepCounter').textContent = stepIdx + 1;
+      document.getElementById('stepTotal').textContent = steps.length;
+      document.getElementById('badgeStep').textContent = `Node ${stepIdx + 1} / ${steps.length}`;
+      document.getElementById('guideTitle').textContent = curr.title;
+      document.getElementById('guideSpeech').textContent = curr.speech;
+      document.getElementById('guideDetail').textContent = curr.detail;
+
+      document.getElementById('btnPrev').disabled = stepIdx === 0;
+      document.getElementById('btnNext').disabled = stepIdx === steps.length - 1;
+
+      document.querySelectorAll('.fc-node').forEach(el => {
+        el.classList.remove('active-green', 'active-red', 'active-blue', 'visited');
+      });
+
+      for (let i = 0; i < stepIdx; i++) {
+        const prevEl = document.getElementById(steps[i].id);
+        if (prevEl) prevEl.classList.add('visited');
+      }
+
+      const activeEl = document.getElementById(curr.id);
+      if (activeEl) {
+        activeEl.classList.add(`active-${curr.type}`);
+        if (scroll) activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      document.getElementById('stepDots').innerHTML = steps.map((s, idx) => {
+        const active = idx === stepIdx;
+        const color = s.type === 'red' ? 'bg-rose-500' : (s.type === 'green' ? 'bg-emerald-400' : 'bg-blue-400');
+        return `<button onclick="goStep(${idx})" class="w-2 h-2 rounded-full transition ${active ? color + ' scale-125' : (idx < stepIdx ? 'bg-slate-500' : 'bg-slate-700')}"></button>`;
+      }).join('');
+    }
+
+    function selectPath() {
+      currentPath = document.getElementById('pathSelector').value;
+      stepIdx = 0;
+      updateFlowchart(true);
+    }
+
+    function nextStep() {
+      const steps = TRACES[currentPath];
+      if (stepIdx < steps.length - 1) { stepIdx++; updateFlowchart(true); }
+      else if (playTimer) togglePlay();
+    }
+    function prevStep() { if (stepIdx > 0) { stepIdx--; updateFlowchart(true); } }
+    function goStep(idx) { stepIdx = idx; updateFlowchart(true); }
+    function resetFlow() { if (playTimer) togglePlay(); stepIdx = 0; updateFlowchart(true); }
+    function jumpTo(nodeKey) {
+      const steps = TRACES[currentPath];
+      const found = steps.findIndex(s => s.id === `node-${nodeKey}`);
+      if (found !== -1) { stepIdx = found; updateFlowchart(true); }
+    }
+    function togglePlay() {
+      const btn = document.getElementById('btnPlay');
+      if (playTimer) {
+        clearInterval(playTimer); playTimer = null;
+        btn.textContent = '▶ Play Trace';
+      } else {
+        if (stepIdx === TRACES[currentPath].length - 1) stepIdx = 0;
+        updateFlowchart(true);
+        btn.textContent = '⏸ Pause';
+        playTimer = setInterval(nextStep, 2800);
+      }
+    }
+
+    updateFlowchart(false);
+  </script>
+</body>
+</html>
+
+

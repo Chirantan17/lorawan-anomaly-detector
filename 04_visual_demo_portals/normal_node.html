@@ -1,0 +1,500 @@
+﻿<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LoRaWAN Full Lifecycle — Normal Node (10 Stages)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+          colors: {
+            console: { base: '#060a12', panel: '#0c1322', surface: '#131e36', border: '#1e2e4d', clean: '#10b981', accent: '#3b82f6' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html { scroll-behavior: smooth; }
+    body { background-color: #060a12; color: #e2e8f0; }
+    .svg-tier { transition: opacity 0.4s ease, filter 0.4s ease; opacity: 0.34; }
+    .svg-tier.visited { opacity: 0.88; }
+    .svg-tier.active { opacity: 1; filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.36)); }
+    .rf-dash { stroke-dasharray: 8 6; animation: dashMove 1.1s linear infinite; }
+    @keyframes dashMove { to { stroke-dashoffset: -28; } }
+  </style>
+</head>
+<body class="min-h-screen font-sans pb-28">
+
+  <!-- STICKY TOP PLAYBACK BAR -->
+  <header class="sticky top-0 z-50 bg-console-panel/95 backdrop-blur-md border-b border-console-border px-5 py-3 shadow-2xl">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <span class="px-2.5 py-1 rounded text-xs font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+          WEBSITE 1 • NORMAL NODE LIFECYCLE
+        </span>
+        <h1 class="text-sm md:text-base font-extrabold text-white">End-to-End LoRaWAN Packet &amp; Protocol Workflow</h1>
+      </div>
+
+      <!-- Manual + Auto Step Controls -->
+      <div class="flex items-center gap-2 bg-console-base border border-console-border rounded-xl p-1.5">
+        <button onclick="prevStep()" id="btnPrev" class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-console-surface text-slate-300 hover:text-white disabled:opacity-40 transition">
+          ◀ Back
+        </button>
+        <button onclick="togglePlay()" id="btnPlay" class="px-4 py-1.5 rounded-lg text-xs font-mono font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition">
+          ▶ Play Auto
+        </button>
+        <button onclick="nextStep()" id="btnNext" class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-console-surface text-slate-300 hover:text-white disabled:opacity-40 transition">
+          Next Step ▶
+        </button>
+        <button onclick="resetFlow()" class="px-2.5 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-white" title="Reset">↺</button>
+        <div class="px-3 py-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-xs font-mono font-bold text-emerald-400">
+          Stage <span id="stepCounter">1</span> / 10
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2"><a href="architecture_blueprint.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition">🏛️ Architecture</a><a href="end_to_end_flowchart.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition">🔀 Flowchart</a><a href="rogue_node.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25 transition">Rogue Lifecycle →</a><a href="novelty_comparison.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition">✨ Novelty</a></div>
+    </div>
+  </header>
+
+  <!-- MAIN TWO-COLUMN LAYOUT -->
+  <div class="max-w-7xl mx-auto px-5 pt-6 grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
+
+    <!-- LEFT 8 COLUMNS: STRETCHED 10-STAGE VERTICAL ARCHITECTURE SVG -->
+    <div class="lg:col-span-8 bg-console-panel border border-console-border rounded-2xl p-4 shadow-2xl overflow-hidden">
+      <svg id="networkSvg" viewBox="0 0 860 2780" class="w-full h-auto select-none">
+        <defs>
+          <marker id="arrowGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+          </marker>
+          <marker id="arrowBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#3b82f6" />
+          </marker>
+        </defs>
+
+        <!-- ==================== STAGE 01: OTAA ACTIVATION & KEY DERIVATION ==================== -->
+        <g id="tier-1" class="svg-tier active" onclick="goToStep(1)" style="cursor:pointer">
+          <rect x="20" y="15" width="820" height="205" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="44" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 01 • NODE ACTIVATION &amp; OTAA SESSION HANDSHAKE</text>
+
+          <rect x="45" y="65" width="210" height="130" rx="12" fill="#0d1629" stroke="#10b981" stroke-width="1.5"/>
+          <text x="150" y="95" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="12" font-weight="700">📡 End-Device Boot</text>
+          <text x="150" y="116" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">DevEUI: 70B3D57ED001</text>
+          <text x="150" y="134" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">DevNonce: 0x4A19 (Unique)</text>
+          <text x="150" y="154" text-anchor="middle" fill="#64748b" font-family="JetBrains Mono" font-size="9.5">Class A Battery Sensor</text>
+
+          <line x1="255" y1="130" x2="335" y2="130" stroke="#10b981" stroke-width="2" class="rf-dash" marker-end="url(#arrowGreen)"/>
+          <text x="295" y="118" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9">Join-Req</text>
+
+          <rect x="340" y="65" width="220" height="130" rx="12" fill="#0d1629" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="450" y="95" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="12" font-weight="700">🔑 Join Server (JS)</text>
+          <text x="450" y="116" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">Verifies Root AppKey</text>
+          <text x="450" y="135" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="10">Assigns DevAddr: 0x26011A</text>
+          <text x="450" y="154" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">Issues Join-Accept</text>
+
+          <line x1="560" y1="130" x2="635" y2="130" stroke="#10b981" stroke-width="2" marker-end="url(#arrowGreen)"/>
+
+          <rect x="640" y="65" width="175" height="130" rx="12" fill="#0d2620" stroke="#10b981" stroke-width="1.5"/>
+          <text x="727" y="95" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">Session Keys Ready</text>
+          <text x="727" y="118" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">NwkSKey (MAC/MIC)</text>
+          <text x="727" y="138" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">AppSKey (Payload)</text>
+          <text x="727" y="158" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9">FCnt Initialized = 0</text>
+        </g>
+
+        <!-- Vertical Connector 1 -> 2 -->
+        <line x1="430" y1="220" x2="430" y2="285" stroke="#10b981" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 02: ESTABLISHED HEALTHY BASELINE ==================== -->
+        <g id="tier-2" class="svg-tier" onclick="goToStep(2)" style="cursor:pointer">
+          <rect x="20" y="290" width="820" height="205" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="318" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 02 • FLEET TOPOLOGY &amp; ESTABLISHED HEALTHY BASELINE</text>
+
+          <!-- 4 Fleet Nodes -->
+          <g transform="translate(45, 340)">
+            <rect x="0" y="0" width="145" height="130" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="72" y="34" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">Node_01</text>
+            <text x="72" y="56" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">● Healthy</text>
+            <text x="72" y="76" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Δt: 15.0s</text>
+            <text x="72" y="94" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">FCnt: 814</text>
+          </g>
+
+          <!-- Highlighted Node Dev_001 -->
+          <g transform="translate(215, 335)">
+            <rect x="0" y="0" width="210" height="140" rx="12" fill="#0d2620" stroke="#10b981" stroke-width="2.5"/>
+            <text x="105" y="32" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="800">★ Target: Dev_001</text>
+            <text x="105" y="54" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10">Baseline Established (1,041 pkts)</text>
+            <text x="105" y="74" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">Avg IAT (Δt): 15.00 s</text>
+            <text x="105" y="92" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">Avg SNR: +8.5 dB | SF7</text>
+            <text x="105" y="110" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Duty Cycle: 0.34% (Limit 1%)</text>
+          </g>
+
+          <g transform="translate(450, 340)">
+            <rect x="0" y="0" width="165" height="130" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="82" y="34" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">Node_03</text>
+            <text x="82" y="56" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">● Healthy</text>
+            <text x="82" y="76" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Δt: 30.0s</text>
+            <text x="82" y="94" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">FCnt: 519</text>
+          </g>
+
+          <g transform="translate(640, 340)">
+            <rect x="0" y="0" width="175" height="130" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="87" y="34" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">Node_04</text>
+            <text x="87" y="56" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">● Healthy</text>
+            <text x="87" y="76" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Δt: 60.0s</text>
+            <text x="87" y="94" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">FCnt: 392</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 2 -> 3 -->
+        <line x1="430" y1="495" x2="430" y2="560" stroke="#10b981" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 03: UPLINK PACKET BIRTH & FRAME STRUCTURE ==================== -->
+        <g id="tier-3" class="svg-tier" onclick="goToStep(3)" style="cursor:pointer">
+          <rect x="20" y="565" width="820" height="205" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="594" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 03 • PACKET BIRTH: LORAWAN MAC FRAME CONSTRUCTION</text>
+          <text x="40" y="615" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Sensor Dev_001 wakes from sleep, encrypts 16 bytes of sensor data, and increments its monotonic Frame Counter (1041 → 1042).</text>
+
+          <!-- Frame Bit-Field Diagram -->
+          <g transform="translate(45, 638)">
+            <rect x="0" y="0" width="115" height="105" rx="8" fill="#0d1629" stroke="#3b82f6"/>
+            <text x="57" y="28" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11" font-weight="700">MHDR (1B)</text>
+            <text x="57" y="52" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10">Unconfirmed</text>
+            <text x="57" y="70" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10">Data Up</text>
+
+            <rect x="125" y="0" width="140" height="105" rx="8" fill="#0d1629" stroke="#3b82f6"/>
+            <text x="195" y="28" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11" font-weight="700">DevAddr (4B)</text>
+            <text x="195" y="54" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11" font-weight="700">0x26011A4F</text>
+            <text x="195" y="74" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9">Plaintext Header</text>
+
+            <rect x="275" y="0" width="150" height="105" rx="8" fill="#0d2620" stroke="#10b981" stroke-width="2"/>
+            <text x="350" y="28" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">FCnt (2B)</text>
+            <text x="350" y="54" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="13" font-weight="800">1042 (+1)</text>
+            <text x="350" y="74" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="9">Monotonic Sequence</text>
+
+            <rect x="435" y="0" width="195" height="105" rx="8" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="532" y="28" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="11" font-weight="700">FRMPayload (16B)</text>
+            <text x="532" y="54" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">AES-128 Encrypted</text>
+            <text x="532" y="74" text-anchor="middle" fill="#64748b" font-family="JetBrains Mono" font-size="9">Never Decrypted by Monitor</text>
+
+            <rect x="640" y="0" width="130" height="105" rx="8" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="705" y="28" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="11" font-weight="700">MIC (4B)</text>
+            <text x="705" y="54" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">AES-CMAC</text>
+            <text x="705" y="74" text-anchor="middle" fill="#64748b" font-family="JetBrains Mono" font-size="9">Checked by NS</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 3 -> 4 -->
+        <line x1="430" y1="770" x2="430" y2="835" stroke="#10b981" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 04: AIR INTERFACE & PURE ALOHA CHANNEL ==================== -->
+        <g id="tier-4" class="svg-tier" onclick="goToStep(4)" style="cursor:pointer">
+          <rect x="20" y="840" width="820" height="205" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="868" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 04 • SUB-GHZ AIR INTERFACE (PURE ALOHA &amp; 1% DUTY-CYCLE COMPLIANCE)</text>
+          <text x="40" y="889" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Transmits on IN865 ISM band using Chirp Spread Spectrum (SF7). Uncoordinated Pure ALOHA relies on ≤1% duty cycle to prevent collisions.</text>
+
+          <g transform="translate(45, 910)">
+            <rect x="0" y="0" width="180" height="110" rx="10" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="90" y="30" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">CARRIER &amp; MODULATION</text>
+            <text x="90" y="55" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="13" font-weight="700">865.0625 MHz</text>
+            <text x="90" y="78" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11">SF7 • BW 125 kHz</text>
+
+            <rect x="195" y="0" width="185" height="110" rx="10" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="287" y="30" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">TIME-ON-AIR &amp; DUTY CYCLE</text>
+            <text x="287" y="55" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="13" font-weight="700">51.5 ms (0.34%)</text>
+            <text x="287" y="78" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">Strictly ≤ 1.0% Limit</text>
+
+            <rect x="395" y="0" width="185" height="110" rx="10" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="487" y="30" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">PURE ALOHA LOAD (G)</text>
+            <text x="487" y="55" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="13" font-weight="700">G = 0.06 (Safe)</text>
+            <text x="487" y="78" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">S = G·e⁻²ᴳ (Linear)</text>
+
+            <rect x="595" y="0" width="175" height="110" rx="10" fill="#0d2620" stroke="#10b981"/>
+            <text x="682" y="30" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">CHANNEL STATUS</text>
+            <text x="682" y="58" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="13" font-weight="800">✔ CLEAR AIRTIME</text>
+            <text x="682" y="78" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">Zero Frame Collisions</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 4 -> 5 -->
+        <line x1="430" y1="1045" x2="430" y2="1110" stroke="#10b981" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 05: MULTI-GATEWAY RECEPTION & TDOA ==================== -->
+        <g id="tier-5" class="svg-tier" onclick="goToStep(5)" style="cursor:pointer">
+          <rect x="20" y="1115" width="820" height="215" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="1144" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 05 • MULTI-GATEWAY RECEPTION &amp; SPEED-OF-LIGHT TDOA CHECK</text>
+          <text x="40" y="1165" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">In LoRaWAN's star-of-stars topology, both Gateway A and Gateway B (540.8 m apart) demodulate the uplink and stamp GPS arrival times.</text>
+
+          <g transform="translate(45, 1185)">
+            <rect x="0" y="0" width="230" height="125" rx="12" fill="#0d1629" stroke="#10b981" stroke-width="1.5"/>
+            <text x="115" y="28" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="12" font-weight="700">🗼 Gateway A (0, 0)</text>
+            <text x="115" y="52" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11">RSSI: -84.2 dBm | SNR: +8.5</text>
+            <text x="115" y="74" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">t_A = 100.000412000 s</text>
+            <text x="115" y="96" text-anchor="middle" fill="#64748b" font-family="JetBrains Mono" font-size="9.5">Packet Forwarder Active</text>
+
+            <rect x="255" y="0" width="260" height="125" rx="12" fill="#0d2620" stroke="#10b981" stroke-width="2"/>
+            <text x="385" y="28" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="800">SPEED-OF-LIGHT INVARIANT</text>
+            <text x="385" y="54" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="13" font-weight="800">|t_A − t_B| = 412.0 ns</text>
+            <text x="385" y="76" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">Max Bound: 540.8m / c = 1,804 ns</text>
+            <text x="385" y="98" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="9.5">Jitter σ² = 18.4 ns (&lt; 350 ns)</text>
+
+            <rect x="540" y="0" width="230" height="125" rx="12" fill="#0d1629" stroke="#10b981" stroke-width="1.5"/>
+            <text x="655" y="28" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="12" font-weight="700">🗼 Gateway B (450, 300)</text>
+            <text x="655" y="52" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11">RSSI: -87.6 dBm | SNR: +7.1</text>
+            <text x="655" y="74" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">t_B = 100.000824000 s</text>
+            <text x="655" y="96" text-anchor="middle" fill="#64748b" font-family="JetBrains Mono" font-size="9.5">Packet Forwarder Active</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 5 -> 6 -->
+        <line x1="430" y1="1330" x2="430" y2="1395" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 06: IP BACKHAUL & DUAL TAP ==================== -->
+        <g id="tier-6" class="svg-tier" onclick="goToStep(6)" style="cursor:pointer">
+          <rect x="20" y="1400" width="820" height="205" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="1428" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 06 • IP BACKHAUL SPLIT: NETWORK SERVER CLOUD VS. DUAL MONITOR TAP</text>
+          <text x="40" y="1449" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Gateways act as transparent Packet Forwarders (holding no session keys). Our monitor taps both raw UDP and decoded MQTT streams.</text>
+
+          <g transform="translate(45, 1470)">
+            <rect x="0" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#3b82f6" stroke-width="1.5"/>
+            <text x="120" y="28" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11.5" font-weight="700">Path A: Raw UDP :9999</text>
+            <text x="120" y="50" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">gateway_socket.py</text>
+            <text x="120" y="70" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Unfiltered RF + TDoA Timestamps</text>
+            <text x="120" y="90" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">64KB Kernel Buffer (0 Drops)</text>
+
+            <rect x="265" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#10b981" stroke-width="1.5"/>
+            <text x="385" y="28" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="700">☁️ ChirpStack Server</text>
+            <text x="385" y="50" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">Terminates NwkSKey</text>
+            <text x="385" y="70" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Deduplicates GW_A &amp; GW_B</text>
+            <text x="385" y="90" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Verifies 4-Byte AES-CMAC</text>
+
+            <rect x="530" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#10b981" stroke-width="1.5"/>
+            <text x="650" y="28" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11.5" font-weight="700">Path B: MQTT :1883</text>
+            <text x="650" y="50" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">mqtt_listener.py</text>
+            <text x="650" y="70" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Decoded Device/Session Context</text>
+            <text x="650" y="90" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">Correlated by (DevAddr, FCnt)</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 6 -> 7 -->
+        <line x1="430" y1="1605" x2="430" y2="1670" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 07: LAYER 1 QUEUE & STATE TRACKING ==================== -->
+        <g id="tier-7" class="svg-tier" onclick="goToStep(7)" style="cursor:pointer">
+          <rect x="20" y="1675" width="820" height="205" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="1704" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 07 • LAYER 1: M/M/1 INGRESS QUEUE &amp; STATEFUL FEATURE ENGINEERING</text>
+          <text x="40" y="1725" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Asynchronous queue decouples packet arrival from scoring, while rolling per-device history computes Δt and ΔFCnt.</text>
+
+          <g transform="translate(45, 1745)">
+            <rect x="0" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#3b82f6"/>
+            <text x="120" y="28" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11" font-weight="700">M/M/1 Queue Stability</text>
+            <text x="120" y="50" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10.5">Arrival λ = 120 pkt/s</text>
+            <text x="120" y="70" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10.5">Service μ = 847 pkt/s</text>
+            <text x="120" y="92" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10" font-weight="700">Utilization ρ = 0.142 &lt; 1</text>
+
+            <rect x="265" y="0" width="240" height="115" rx="12" fill="#0d2620" stroke="#10b981"/>
+            <text x="385" y="28" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">Timing &amp; Sequence State</text>
+            <text x="385" y="52" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11">Δt = t_now − t_prev = 15.02s</text>
+            <text x="385" y="74" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11">ΔFCnt = 1042 − 1041 = +1</text>
+            <text x="385" y="94" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">Matches Baseline Cadence</text>
+
+            <rect x="530" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="650" y="28" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">7-D Feature Vector Out</text>
+            <text x="650" y="52" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">[-84.2, +8.5, SF7, 15.02s,</text>
+            <text x="650" y="70" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">FCnt:1042, 16B, 865.06MHz]</text>
+            <text x="650" y="94" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">Normalized for ML Engine</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 7 -> 8 -->
+        <line x1="430" y1="1880" x2="430" y2="1945" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 08: LAYER 2 INSIDE THE ML ALGORITHMS ==================== -->
+        <g id="tier-8" class="svg-tier" onclick="goToStep(8)" style="cursor:pointer">
+          <rect x="20" y="1950" width="820" height="225" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="1978" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 08 • LAYER 2: INSIDE THE HYBRID ML ALGORITHMS (1.18 MS INFERENCE)</text>
+          <text x="40" y="1999" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">We run two complementary algorithms in parallel so known attack signatures and unknown anomalies are both caught.</text>
+
+          <g transform="translate(45, 2018)">
+            <!-- XGBoost Internals -->
+            <rect x="0" y="0" width="375" height="135" rx="12" fill="#0d1629" stroke="#10b981" stroke-width="2"/>
+            <text x="187" y="26" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans" font-size="13.5" font-weight="800">Algorithm 1: XGBoost (Gradient Boosted Trees)</text>
+            <text x="187" y="46" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">140 Boosted Trees • Splits on Δt, ΔFCnt, SNR, RSSI</text>
+            <rect x="25" y="60" width="325" height="34" rx="6" fill="#10b981" fill-opacity="0.15" stroke="#10b981"/>
+            <text x="187" y="81" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="800">Output Probability: 0.004 (BENIGN)</text>
+            <text x="187" y="116" text-anchor="middle" fill="#64748b" font-family="JetBrains Mono" font-size="9.5">Validated Benchmark: 99.23% F1 • 99.41% Precision</text>
+
+            <!-- Isolation Forest Internals -->
+            <rect x="395" y="0" width="375" height="135" rx="12" fill="#0d1629" stroke="#10b981" stroke-width="2"/>
+            <text x="582" y="26" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans" font-size="13.5" font-weight="800">Algorithm 2: Isolation Forest (Unsupervised)</text>
+            <text x="582" y="46" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Random Subspace Partitioning • Contamination = 0.12</text>
+            <rect x="420" y="60" width="325" height="34" rx="6" fill="#10b981" fill-opacity="0.15" stroke="#10b981"/>
+            <text x="582" y="81" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="800">Path Depth Score: +0.18 (NORMAL INLIER)</text>
+            <text x="582" y="116" text-anchor="middle" fill="#64748b" font-family="JetBrains Mono" font-size="9.5">Deep tree path confirms dense normal cluster</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 8 -> 9 -->
+        <line x1="430" y1="2175" x2="430" y2="2240" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 09: LAYER 3 7-RULE DECISION FLOWCHART ==================== -->
+        <g id="tier-9" class="svg-tier" onclick="goToStep(9)" style="cursor:pointer">
+          <rect x="20" y="2245" width="820" height="235" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="2274" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 09 • LAYER 3: 7-RULE DETERMINISTIC PROTOCOL DECISION FLOWCHART</text>
+          <text x="40" y="2295" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Every packet must pass 7 deterministic network invariant checks so decisions are 100% explainable to network engineers.</text>
+
+          <g transform="translate(45, 2314)" font-family="JetBrains Mono" font-size="10" text-anchor="middle">
+            <rect x="0" y="0" width="102" height="58" rx="8" fill="#0d2620" stroke="#10b981"/><text x="51" y="24" fill="#e2e8f0">1. Session</text><text x="51" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+            <rect x="111" y="0" width="102" height="58" rx="8" fill="#0d2620" stroke="#10b981"/><text x="162" y="24" fill="#e2e8f0">2. FCnt (+1)</text><text x="162" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+            <rect x="222" y="0" width="102" height="58" rx="8" fill="#0d2620" stroke="#10b981"/><text x="273" y="24" fill="#e2e8f0">3. Duty ≤1%</text><text x="273" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+            <rect x="333" y="0" width="102" height="58" rx="8" fill="#0d2620" stroke="#10b981"/><text x="384" y="24" fill="#e2e8f0">4. SNR/RSSI</text><text x="384" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+            <rect x="444" y="0" width="102" height="58" rx="8" fill="#0d2620" stroke="#10b981"/><text x="495" y="24" fill="#e2e8f0">5. SF / ADR</text><text x="495" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+            <rect x="555" y="0" width="102" height="58" rx="8" fill="#0d2620" stroke="#10b981"/><text x="606" y="24" fill="#e2e8f0">6. IN865 Ch</text><text x="606" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+            <rect x="666" y="0" width="104" height="58" rx="8" fill="#0d2620" stroke="#10b981"/><text x="718" y="24" fill="#e2e8f0">7. TDoA Bound</text><text x="718" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+
+            <!-- Decision Outcome Banner -->
+            <line x1="385" y1="58" x2="230" y2="96" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+            <line x1="385" y1="58" x2="540" y2="96" stroke="#1e2e4d" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+            <rect x="65" y="98" width="330" height="44" rx="8" fill="#10b981" fill-opacity="0.2" stroke="#10b981" stroke-width="2"/>
+            <text x="230" y="125" fill="#10b981" font-size="12" font-weight="800">✔ ALL 7 CHECKS PASSED → CLEARED</text>
+
+            <rect x="415" y="98" width="330" height="44" rx="8" fill="#0d1629" stroke="#1e2e4d" opacity="0.4"/>
+            <text x="580" y="125" fill="#64748b" font-size="11">✖ Any Rule Fails → Quarantine</text>
+          </g>
+        </g>
+
+        <!-- Vertical Connector 9 -> 10 -->
+        <line x1="430" y1="2480" x2="430" y2="2545" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 10: FINAL AUDIT & APPLICATION DELIVERY ==================== -->
+        <g id="tier-10" class="svg-tier" onclick="goToStep(10)" style="cursor:pointer">
+          <rect x="20" y="2550" width="820" height="205" rx="16" fill="#090f1d" stroke="#10b981" stroke-width="2"/>
+          <text x="40" y="2578" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 10 • AUDIT PERSISTENCE, ENERGY-SAFE POLICY &amp; APPLICATION DELIVERY</text>
+
+          <g transform="translate(45, 2600)" font-family="JetBrains Mono" text-anchor="middle">
+            <rect x="0" y="0" width="240" height="125" rx="12" fill="#0d1629" stroke="#10b981"/>
+            <text x="120" y="32" fill="#ffffff" font-size="12" font-weight="700">🗄️ SQLite WAL Database</text>
+            <text x="120" y="56" fill="#10b981" font-size="10">telemetry_logs Committed</text>
+            <text x="120" y="76" fill="#94a3b8" font-size="9.5">Dev_001 | FCnt=1042 | Flag=0</text>
+            <text x="120" y="98" fill="#64748b" font-size="9">Full Forensic Audit Trail</text>
+
+            <rect x="265" y="0" width="240" height="125" rx="12" fill="#0d1629" stroke="#10b981"/>
+            <text x="385" y="32" fill="#ffffff" font-size="12" font-weight="700">🔋 Battery-Safe Policy</text>
+            <text x="385" y="56" fill="#10b981" font-size="10">Downlink Sent: NONE</text>
+            <text x="385" y="76" fill="#94a3b8" font-size="9.5">Avoids RX1/RX2 Radio Wakeup</text>
+            <text x="385" y="98" fill="#64748b" font-size="9">Preserves 10-Yr Battery Goal</text>
+
+            <rect x="530" y="0" width="240" height="125" rx="12" fill="#0d2620" stroke="#10b981"/>
+            <text x="650" y="32" fill="#ffffff" font-size="12" font-weight="700">📱 Application Server</text>
+            <text x="650" y="56" fill="#10b981" font-size="10">AppSKey Decrypts Payload</text>
+            <text x="650" y="76" fill="#e2e8f0" font-size="9.5">Sensor Reading Delivered</text>
+            <text x="650" y="98" fill="#10b981" font-size="9">End-to-End Lifecycle Complete</text>
+          </g>
+        </g>
+
+      </svg>
+    </div>
+
+    <!-- RIGHT 4 COLUMNS: STICKY STEP-BY-STEP EXPLAINER -->
+    <aside class="lg:col-span-4 lg:sticky lg:top-20 space-y-4">
+      <div class="bg-console-panel border border-emerald-500/40 rounded-2xl p-5 shadow-2xl">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400">📡 Packet Lifecycle Inspector</span>
+          <span id="narratorBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Stage 1 / 10</span>
+        </div>
+        <h2 id="narratorTitle" class="text-lg font-extrabold text-white mb-2"></h2>
+        <p id="narratorSpeech" class="text-sm text-slate-300 leading-relaxed mb-4"></p>
+
+        <div class="bg-console-base border border-console-border rounded-xl p-3.5 mb-4">
+          <div class="text-[11px] font-mono uppercase text-emerald-400 mb-1">Technical Proof Point</div>
+          <p id="narratorPoint" class="text-xs font-mono text-slate-200 leading-relaxed"></p>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-console-border">
+          <button onclick="prevStep()" class="text-xs font-mono text-slate-400 hover:text-white">← Back</button>
+          <div class="flex gap-1" id="stepDots"></div>
+          <button onclick="nextStep()" class="text-xs font-mono text-emerald-400 font-bold hover:text-emerald-300">Next →</button>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    const STAGES = [
+      { title: "1. OTAA Node Activation", speech: "\"The device lifecycle initiates with Over-The-Air Activation (OTAA). The sensor sends a Join-Request with a unique DevNonce, and the Join Server derives two separate session keys: NwkSKey for network integrity and AppSKey for end-to-end payload encryption.\"", point: "Key separation ensures gateways forward packets without ever decrypting user data." },
+      { title: "2. Established Healthy Baseline", speech: "\"During normal operation, the stateful engine profiles the fleet's normal behavior. Dev_001 has sent 1,041 steady uplinks at 15-second intervals with +8.5 dB SNR and 0.34% airtime duty cycle.\"", point: "Establishing a per-device baseline allows us to detect sudden behavioral shifts later." },
+      { title: "3. Packet Birth & Frame Structure", speech: "\"The sensor constructs uplink #1042. Notice the frame structure: DevAddr and FCnt are visible in the MAC header, while the 16-byte sensor payload stays AES-128 encrypted.\"", point: "Our monitor inspects plaintext MAC headers & PHY radio metrics—never breaking AES." },
+      { title: "4. Sub-GHz Pure ALOHA Channel", speech: "\"The modulated chirp frame propagates across the 865.0625 MHz radio channel using Chirp Spread Spectrum (SF7). Because LoRaWAN uses uncoordinated Pure ALOHA without carrier sensing, staying at 0.34% duty cycle keeps channel load low (G = 0.06) with zero collisions.\"", point: "Regional 1% duty-cycle compliance stabilizes Pure ALOHA throughput (S = G·e^-2G)." },
+      { title: "5. Multi-Gateway TDoA Reception", speech: "\"Within the star-of-stars topology, both Gateway A and Gateway B (540.8 meters apart) receive the radio wave and attach GPS nanosecond timestamps. The 412 ns arrival difference is well within the 1,804 ns speed-of-light travel limit.\"", point: "Physical invariant: |t_A − t_B| ≤ ||r_A − r_B||₂ / c (1,804 ns physical limit)." },
+      { title: "6. IP Backhaul & Dual Monitor Tap", speech: "\"Gateways forward frames over IP backhaul into two parallel taps: two points: raw UDP Port 9999 for unfiltered radio/TDoA metadata, and ChirpStack MQTT Port 1883 for deduplicated, MIC-verified session context.\"", point: "Correlating UDP + MQTT eliminates blind spots between RF reception and server filtering." },
+      { title: "7. Layer 1 M/M/1 Queue & State", speech: "\"In Layer 1, the non-blocking M/M/1 queue runs at 14.2% utilization (ρ = 0.142) with zero drops. The state tracker computes Δt = 15.02s and ΔFCnt = +1, confirming normal cadence.\"", point: "Service rate μ = 847 pkts/s easily absorbs bursts without socket ring-buffer loss." },
+      { title: "8. Layer 2 Inside the ML Algorithms", speech: "\"Layer 2 evaluates the 7-D feature vector into two algorithms in 1.18 ms: XGBoost (140 gradient-boosted trees) scores it at 0.4% threat probability, and Isolation Forest confirms a deep inlier path (+0.18).\"", point: "Dual ML architecture covers both known attack patterns and novel outliers." },
+      { title: "9. Layer 3 7-Rule Decision Flowchart", speech: "\"In Layer 3, the event passes through 7 deterministic protocol checks—Session ID, Monotonic FCnt, Duty Cycle, SNR, ADR, Frequency, and TDoA Spatial Bound. All 7 checks pass.\"", point: "Every verdict maps directly to verifiable network rules rather than black-box scores." },
+      { title: "10. Audit Log & Application Delivery", speech: "\"The cleared event is committed to SQLite WAL and delivered to the Application Server. Zero downlink commands are sent, preserving the Class A sensor's battery life.\"", point: "Complete normal lifecycle verified. Switch to the Rogue Node Lifecycle portal to inspect adversarial deviations." }
+    ];
+
+    let currentStep = 1;
+    let playTimer = null;
+
+    function updateUI(scroll = true) {
+      document.getElementById('stepCounter').textContent = currentStep;
+      document.getElementById('narratorBadge').textContent = `Stage ${currentStep} / 10`;
+      document.getElementById('narratorTitle').textContent = STAGES[currentStep - 1].title;
+      document.getElementById('narratorSpeech').textContent = STAGES[currentStep - 1].speech;
+      document.getElementById('narratorPoint').textContent = STAGES[currentStep - 1].point;
+
+      document.getElementById('btnPrev').disabled = currentStep === 1;
+      document.getElementById('btnNext').disabled = currentStep === 10;
+
+      for (let i = 1; i <= 10; i++) {
+        const tier = document.getElementById(`tier-${i}`);
+        tier.classList.remove('active', 'visited');
+        if (i === currentStep) tier.classList.add('active');
+        else if (i < currentStep) tier.classList.add('visited');
+      }
+
+      document.getElementById('stepDots').innerHTML = Array.from({ length: 10 }, (_, i) => {
+        const s = i + 1;
+        return `<button onclick="goToStep(${s})" class="w-2 h-2 rounded-full transition ${s === currentStep ? 'bg-emerald-400 scale-125' : (s < currentStep ? 'bg-emerald-500/40' : 'bg-slate-700')}"></button>`;
+      }).join('');
+
+      if (scroll) {
+        document.getElementById(`tier-${currentStep}`).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function nextStep() {
+      if (currentStep < 10) { currentStep++; updateUI(true); }
+      else if (playTimer) togglePlay();
+    }
+    function prevStep() { if (currentStep > 1) { currentStep--; updateUI(true); } }
+    function goToStep(s) { currentStep = s; updateUI(true); }
+    function resetFlow() { if (playTimer) togglePlay(); currentStep = 1; updateUI(true); }
+    function togglePlay() {
+      const btn = document.getElementById('btnPlay');
+      if (playTimer) {
+        clearInterval(playTimer); playTimer = null;
+        btn.textContent = '▶ Play Auto';
+        btn.classList.replace('bg-amber-400', 'bg-emerald-500');
+      } else {
+        if (currentStep === 10) currentStep = 1;
+        updateUI(true);
+        btn.textContent = '⏸ Pause';
+        btn.classList.replace('bg-emerald-500', 'bg-amber-400');
+        playTimer = setInterval(nextStep, 3400);
+      }
+    }
+    updateUI(false);
+  </script>
+</body>
+</html>
+
+
+
+

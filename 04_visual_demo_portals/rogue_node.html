@@ -1,0 +1,701 @@
+﻿<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LoRaWAN Full Lifecycle — Rogue Node Transition & Detection (10 Stages)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+          colors: {
+            console: { base: '#060a12', panel: '#0c1322', surface: '#131e36', border: '#1e2e4d', alert: '#f43f5e', clean: '#10b981' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html { scroll-behavior: smooth; }
+    body { background-color: #060a12; color: #e2e8f0; }
+    .svg-tier { transition: opacity 0.4s ease, filter 0.4s ease; opacity: 0.34; }
+    .svg-tier.visited { opacity: 0.88; }
+    .svg-tier.active { opacity: 1; filter: drop-shadow(0 0 18px rgba(244, 63, 94, 0.38)); }
+    .svg-tier.active-green { opacity: 1; filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.36)); }
+    .rf-dash { stroke-dasharray: 8 6; animation: dashMove 0.85s linear infinite; }
+    @keyframes dashMove { to { stroke-dashoffset: -28; } }
+  </style>
+</head>
+<body class="min-h-screen font-sans pb-28">
+
+  <!-- STICKY TOP PLAYBACK & ATTACK CUSTOMIZER BAR -->
+  <header class="sticky top-0 z-50 bg-console-panel/95 backdrop-blur-md border-b border-rose-500/30 px-5 py-3 shadow-2xl">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span class="px-2.5 py-1 rounded text-xs font-mono font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+          WEBSITE 2 • ROGUE NODE LIFECYCLE
+        </span>
+        <select id="attackSelector" onchange="applyScenario()" class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold bg-console-surface border border-rose-500/50 text-white focus:outline-none">
+          <option value="dos">Attack 1: Duty-Cycle DoS Flood (ALOHA Saturation)</option>
+          <option value="replay">Attack 2: Frame Counter Replay (FCnt Rollback)</option>
+          <option value="tdoa">Attack 3: Out-of-Region TDoA Spatial Spoof</option>
+          <option value="jamming">Attack 4: RF Barrage Jamming (SNR Collapse)</option>
+        </select>
+      </div>
+
+      <!-- Manual + Auto Step Controls -->
+      <div class="flex items-center gap-2 bg-console-base border border-console-border rounded-xl p-1.5">
+        <button onclick="prevStep()" id="btnPrev" class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-console-surface text-slate-300 hover:text-white disabled:opacity-40 transition">
+          ◀ Back
+        </button>
+        <button onclick="togglePlay()" id="btnPlay" class="px-4 py-1.5 rounded-lg text-xs font-mono font-bold bg-rose-500 text-white hover:bg-rose-400 transition">
+          ▶ Play Auto
+        </button>
+        <button onclick="nextStep()" id="btnNext" class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-console-surface text-slate-300 hover:text-white disabled:opacity-40 transition">
+          Next Step ▶
+        </button>
+        <button onclick="resetFlow()" class="px-2.5 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-white" title="Reset">↺</button>
+        <div class="px-3 py-1 rounded bg-rose-500/15 border border-rose-500/30 text-xs font-mono font-bold text-rose-400">
+          Stage <span id="stepCounter">1</span> / 10
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2"><a href="architecture_blueprint.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition">🏛️ Architecture</a><a href="end_to_end_flowchart.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition">🔀 Flowchart</a><a href="normal_node.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition">← Normal Lifecycle</a><a href="novelty_comparison.html" class="px-3 py-2 rounded-lg text-xs font-mono font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition">✨ Novelty</a></div>
+    </div>
+  </header>
+
+  <!-- MAIN TWO-COLUMN LAYOUT -->
+  <div class="max-w-7xl mx-auto px-5 pt-6 grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
+
+    <!-- LEFT 8 COLUMNS: STRETCHED 10-STAGE VERTICAL ATTACK LIFECYCLE SVG -->
+    <div class="lg:col-span-8 bg-console-panel border border-rose-500/30 rounded-2xl p-4 shadow-2xl overflow-hidden">
+      <svg id="networkSvg" viewBox="0 0 860 2780" class="w-full h-auto select-none">
+        <defs>
+          <marker id="arrowGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+          </marker>
+          <marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#f43f5e" />
+          </marker>
+        </defs>
+
+        <!-- ==================== STAGE 01: INITIAL OTAA JOIN (STARTS LEGITIMATE) ==================== -->
+        <g id="tier-1" class="svg-tier active-green" onclick="goToStep(1)" style="cursor:pointer">
+          <rect x="20" y="15" width="820" height="205" rx="16" fill="#090f1d" stroke="#10b981" stroke-width="1.5"/>
+          <text x="40" y="44" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 01 • INITIAL OTAA ONBOARDING (NODE STARTS AS LEGITIMATE)</text>
+          <text x="40" y="64" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Initially, the node joins the network legitimately via OTAA—proving why static join-time checks alone cannot stop post-join compromises.</text>
+
+          <g transform="translate(45, 82)">
+            <rect x="0" y="0" width="235" height="115" rx="12" fill="#0d1629" stroke="#10b981"/>
+            <text x="117" y="30" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="700">📡 Node_02 (Initial State)</text>
+            <text x="117" y="52" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">Valid Join-Request Sent</text>
+            <text x="117" y="72" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">DevAddr: 0x26011B88</text>
+
+            <rect x="265" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#3b82f6"/>
+            <text x="385" y="30" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11.5" font-weight="700">🔑 Join Server Approved</text>
+            <text x="385" y="52" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">NwkSKey &amp; AppSKey Issued</text>
+            <text x="385" y="72" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Cryptographically Valid</text>
+
+            <rect x="535" y="0" width="235" height="115" rx="12" fill="#0d2620" stroke="#10b981"/>
+            <text x="652" y="30" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11.5" font-weight="700">✔ Admitted to Network</text>
+            <text x="652" y="52" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">Baseline Tracking Begins</text>
+            <text x="652" y="72" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Initial FCnt = 0</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="220" x2="430" y2="285" stroke="#10b981" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowGreen)"/>
+
+        <!-- ==================== STAGE 02: NORMAL BASELINE PHASE (PKTS 1 -> 1041) ==================== -->
+        <g id="tier-2" class="svg-tier" onclick="goToStep(2)" style="cursor:pointer">
+          <rect x="20" y="290" width="820" height="205" rx="16" fill="#090f1d" stroke="#10b981" stroke-width="1.5"/>
+          <text x="40" y="318" fill="#10b981" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 02 • NORMAL BASELINE OPERATION (PACKETS #1 TO #1,041)</text>
+          <text x="40" y="339" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">For hours, the node behaves normally alongside the fleet—allowing our stateful tracker to learn its expected timing and RF profile.</text>
+
+          <g transform="translate(45, 358)">
+            <rect x="0" y="0" width="175" height="115" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="87" y="32" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">Node_01</text>
+            <text x="87" y="56" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">● Normal (15s)</text>
+
+            <rect x="195" y="0" width="210" height="115" rx="12" fill="#0d2620" stroke="#10b981" stroke-width="2"/>
+            <text x="300" y="30" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11.5" font-weight="800">Node_02 (Pre-Attack)</text>
+            <text x="300" y="52" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10">Normal IAT: 15.00 s</text>
+            <text x="300" y="72" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">Baseline SNR: +8.0 dB</text>
+            <text x="300" y="92" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Last Clean FCnt: 1041</text>
+
+            <rect x="425" y="0" width="165" height="115" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="507" y="32" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">Node_03</text>
+            <text x="507" y="56" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">● Normal (30s)</text>
+
+            <rect x="610" y="0" width="160" height="115" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="690" y="32" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">Node_04</text>
+            <text x="690" y="56" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">● Normal (60s)</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="495" x2="430" y2="560" stroke="#f43f5e" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 03: BEHAVIORAL DEVIATION & ROGUE TRANSITION ==================== -->
+        <g id="tier-3" class="svg-tier" onclick="goToStep(3)" style="cursor:pointer">
+          <rect x="20" y="565" width="820" height="215" rx="16" fill="#180a10" stroke="#f43f5e" stroke-width="2"/>
+          <text x="40" y="594" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="800">STAGE 03 • BEHAVIORAL SHIFT: NODE COMPROMISED / TURNS ROGUE!</text>
+          <text id="s3-desc" x="40" y="615" fill="#fda4af" font-family="Plus Jakarta Sans" font-size="12"></text>
+
+          <g transform="translate(45, 638)">
+            <rect x="0" y="0" width="215" height="120" rx="10" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+            <text id="s3-node" x="107" y="28" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="12.5" font-weight="800">⚠️ Rogue_X1</text>
+            <text id="s3-mode" x="107" y="52" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10">Duty-Cycle Burst Attack</text>
+            <text id="s3-sub" x="107" y="74" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9.5">Firmware / SDR Hijacked</text>
+
+            <rect x="235" y="0" width="165" height="120" rx="10" fill="#0d1629" stroke="#f43f5e"/>
+            <text x="317" y="28" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">INCOMING FCnt</text>
+            <text id="s3-fcnt" x="317" y="56" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="800">1043 (Rapid)</text>
+            <text x="317" y="78" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9">Plaintext MAC Field</text>
+
+            <rect x="415" y="0" width="170" height="120" rx="10" fill="#0d1629" stroke="#f43f5e"/>
+            <text x="500" y="28" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">TIMING / CADENCE</text>
+            <text id="s3-cadence" x="500" y="56" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="800">Δt = 0.042 s</text>
+            <text id="s3-cadsub" x="500" y="78" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9">350x Faster Than Normal</text>
+
+            <rect x="600" y="0" width="170" height="120" rx="10" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="685" y="28" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">PAYLOAD / MIC</text>
+            <text id="s3-mic" x="685" y="56" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">Valid AES-CMAC</text>
+            <text x="685" y="78" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9">Crypto Alone Won't Stop</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="780" x2="430" y2="845" stroke="#f43f5e" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 04: AIR INTERFACE & RED ✖ OUTAGE MARKER ==================== -->
+        <g id="tier-4" class="svg-tier" onclick="goToStep(4)" style="cursor:pointer">
+          <rect x="20" y="850" width="820" height="215" rx="16" fill="#090f1d" stroke="#f43f5e" stroke-width="1.5"/>
+          <text x="40" y="878" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 04 • AIR INTERFACE DISRUPTION (RED ✖ PURE ALOHA / CHANNEL FAULT)</text>
+          <text id="s4-desc" x="40" y="899" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12"></text>
+
+          <g transform="translate(45, 920)">
+            <rect x="0" y="0" width="180" height="120" rx="10" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="90" y="30" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">RF LINK METRICS</text>
+            <text id="s4-rf" x="90" y="56" text-anchor="middle" fill="#fbbf24" font-family="JetBrains Mono" font-size="12" font-weight="700">-92 dBm / +3 dB</text>
+            <text x="90" y="78" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">865.4025 MHz • SF7</text>
+
+            <rect x="195" y="0" width="185" height="120" rx="10" fill="#2b0c16" stroke="#f43f5e"/>
+            <text x="287" y="30" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="10">AIRTIME DUTY CYCLE</text>
+            <text id="s4-duty" x="287" y="56" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="13" font-weight="800">51.5% (&gt; 1% Cap)</text>
+            <text x="287" y="78" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="9.5">Violates IN865/RP002</text>
+
+            <rect x="395" y="0" width="185" height="120" rx="10" fill="#2b0c16" stroke="#f43f5e"/>
+            <text x="487" y="30" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="10">PURE ALOHA LOAD (G)</text>
+            <text id="s4-aloha" x="487" y="56" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="13" font-weight="800">G = 1.85 (Collapse)</text>
+            <text x="487" y="78" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="9.5">Peak Capacity G = 0.5</text>
+
+            <rect x="595" y="0" width="175" height="120" rx="10" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+            <text x="682" y="30" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="10">OUTAGE MARKER</text>
+            <text id="s4-x" x="682" y="58" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="800">✖ COLLISION FLOOD</text>
+            <text x="682" y="80" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9">Honest Nodes Blocked</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="1065" x2="430" y2="1130" stroke="#f43f5e" stroke-width="2.5" class="rf-dash" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 05: MULTI-GATEWAY RECEPTION & TDOA ==================== -->
+        <g id="tier-5" class="svg-tier" onclick="goToStep(5)" style="cursor:pointer">
+          <rect x="20" y="1135" width="820" height="215" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="1164" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 05 • MULTI-GATEWAY RECEPTION &amp; SPEED-OF-LIGHT TDOA CHECK</text>
+          <text x="40" y="1185" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Gateways A and B (540.8 m baseline) stamp nanosecond arrival times to verify physical transmitter location.</text>
+
+          <g transform="translate(45, 1205)">
+            <rect x="0" y="0" width="230" height="125" rx="12" fill="#0d1629" stroke="#f43f5e"/>
+            <text x="115" y="28" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="12" font-weight="700">🗼 Gateway A (0, 0)</text>
+            <text id="s5-gwa1" x="115" y="52" text-anchor="middle" fill="#fbbf24" font-family="JetBrains Mono" font-size="10.5">Demodulator Load High</text>
+            <text id="s5-gwa2" x="115" y="74" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">t_A = 100.000412000 s</text>
+
+            <rect id="s5-box" x="255" y="0" width="260" height="125" rx="12" fill="#0d1629" stroke="#3b82f6" stroke-width="2"/>
+            <text x="385" y="28" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11" font-weight="800">TDOA SPATIAL GEOMETRY</text>
+            <text id="s5-tdoa" x="385" y="54" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="13" font-weight="800">|t_A − t_B| = 430.0 ns</text>
+            <text x="385" y="76" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">Physical Limit: ≤ 1,804 ns</text>
+            <text id="s5-var" x="385" y="98" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">Jitter σ² = 12.0 ns (Local)</text>
+
+            <rect x="540" y="0" width="230" height="125" rx="12" fill="#0d1629" stroke="#f43f5e"/>
+            <text x="655" y="28" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="12" font-weight="700">🗼 Gateway B (450, 300)</text>
+            <text id="s5-gwb1" x="655" y="52" text-anchor="middle" fill="#fbbf24" font-family="JetBrains Mono" font-size="10.5">Secondary Reception</text>
+            <text id="s5-gwb2" x="655" y="74" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">t_B = 100.000842000 s</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="1350" x2="430" y2="1415" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 06: IP BACKHAUL & DUAL TAP ==================== -->
+        <g id="tier-6" class="svg-tier" onclick="goToStep(6)" style="cursor:pointer">
+          <rect x="20" y="1420" width="820" height="205" rx="16" fill="#090f1d" stroke="#1e2e4d" stroke-width="1.5"/>
+          <text x="40" y="1448" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 06 • IP BACKHAUL: WHY RAW UDP :9999 CATCHES WHAT SERVERS DROP</text>
+          <text x="40" y="1469" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Network Servers silently discard duplicate/stale frames. Tapping UDP :9999 directly at the gateway captures every attack packet.</text>
+
+          <g transform="translate(45, 1490)">
+            <rect x="0" y="0" width="255" height="115" rx="12" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+            <text x="127" y="28" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="11.5" font-weight="800">★ Raw UDP :9999 Tap</text>
+            <text x="127" y="50" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10">Captures Unfiltered Burst</text>
+            <text x="127" y="70" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9.5">Preserves Dual-GW Timestamps</text>
+            <text x="127" y="90" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="9.5">64KB Buffer (0 Socket Drops)</text>
+
+            <rect x="280" y="0" width="235" height="115" rx="12" fill="#0d1629" stroke="#3b82f6"/>
+            <text x="397" y="28" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11.5" font-weight="700">☁️ ChirpStack Server</text>
+            <text x="397" y="50" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">Deduplicates / Filters</text>
+            <text x="397" y="70" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Hides Volumetric Floods</text>
+
+            <rect x="540" y="0" width="230" height="115" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="655" y="28" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="11.5" font-weight="700">MQTT :1883 Context</text>
+            <text x="655" y="50" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">Provides Session Metadata</text>
+            <text x="655" y="70" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Fused in Preprocessor</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="1625" x2="430" y2="1690" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 07: LAYER 1 STATEFUL TRACKER ==================== -->
+        <g id="tier-7" class="svg-tier" onclick="goToStep(7)" style="cursor:pointer">
+          <rect x="20" y="1695" width="820" height="205" rx="16" fill="#090f1d" stroke="#f43f5e" stroke-width="1.5"/>
+          <text x="40" y="1724" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 07 • LAYER 1: STATEFUL FEATURE EXTRACTION AGAINST BASELINE</text>
+          <text x="40" y="1745" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Comparing the incoming packet against Stage 2's learned baseline immediately exposes the behavioral anomaly.</text>
+
+          <g transform="translate(45, 1765)">
+            <rect x="0" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#10b981"/>
+            <text x="120" y="28" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="11" font-weight="700">M/M/1 Queue Absorbs Spike</text>
+            <text x="120" y="52" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="10.5">Utilization ρ = 0.28 &lt; 1</text>
+            <text x="120" y="74" text-anchor="middle" fill="#10b981" font-family="JetBrains Mono" font-size="10">Zero Buffer Overflow</text>
+
+            <rect x="265" y="0" width="240" height="115" rx="12" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+            <text x="385" y="28" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="11" font-weight="800">Stateful Delta Spike</text>
+            <text id="s7-iat" x="385" y="52" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono" font-size="11" font-weight="700">Δt = 0.0420 s (!)</text>
+            <text id="s7-fcnt" x="385" y="74" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="11">ΔFCnt = +1</text>
+
+            <rect x="530" y="0" width="240" height="115" rx="12" fill="#0d1629" stroke="#1e2e4d"/>
+            <text x="650" y="28" text-anchor="middle" fill="#e2e8f0" font-family="JetBrains Mono" font-size="11" font-weight="700">7-D Feature Vector</text>
+            <text id="s7-vec" x="650" y="54" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9.5">[-92.0, +3.0, SF7, 0.042s,</text>
+            <text x="650" y="74" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">FCnt:1043, 24B, 865.4MHz]</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="1900" x2="430" y2="1965" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 08: LAYER 2 INSIDE THE ML ALGORITHMS ==================== -->
+        <g id="tier-8" class="svg-tier" onclick="goToStep(8)" style="cursor:pointer">
+          <rect x="20" y="1970" width="820" height="225" rx="16" fill="#090f1d" stroke="#f43f5e" stroke-width="1.5"/>
+          <text x="40" y="1998" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 08 • LAYER 2: INSIDE THE HYBRID ML ALGORITHMS (1.18 MS INFERENCE)</text>
+          <text x="40" y="2019" fill="#94a3b8" font-family="Plus Jakarta Sans" font-size="12">Both supervised classification and unsupervised outlier isolation flag the deviation simultaneously.</text>
+
+          <g transform="translate(45, 2038)">
+            <rect x="0" y="0" width="375" height="135" rx="12" fill="#0d1629" stroke="#f43f5e" stroke-width="2"/>
+            <text x="187" y="26" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans" font-size="13.5" font-weight="800">Algorithm 1: XGBoost (140 Decision Trees)</text>
+            <text id="s8-xgb-sub" x="187" y="46" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9.5">Tree Split Triggered: Δt &lt; 0.10s Branch</text>
+            <rect x="25" y="60" width="325" height="34" rx="6" fill="#f43f5e" fill-opacity="0.2" stroke="#f43f5e"/>
+            <text id="s8-xgb" x="187" y="81" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="800">Threat Probability: 99.2% (CRITICAL)</text>
+            <text x="187" y="116" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Latency: 1.18 ms • Precision: 99.41%</text>
+
+            <rect x="395" y="0" width="375" height="135" rx="12" fill="#0d1629" stroke="#f43f5e" stroke-width="2"/>
+            <text x="582" y="26" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans" font-size="13.5" font-weight="800">Algorithm 2: Isolation Forest (Novelty)</text>
+            <text x="582" y="46" text-anchor="middle" fill="#fda4af" font-family="JetBrains Mono" font-size="9.5">Short Random Partition Path = Easy to Isolate</text>
+            <rect x="420" y="60" width="325" height="34" rx="6" fill="#f43f5e" fill-opacity="0.2" stroke="#f43f5e"/>
+            <text id="s8-iso" x="582" y="81" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="800">Anomaly Score: -0.34 (SEVERE OUTLIER)</text>
+            <text x="582" y="116" text-anchor="middle" fill="#94a3b8" font-family="JetBrains Mono" font-size="9.5">Escalates to Layer 3 Diagnostic Tree</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="2195" x2="430" y2="2260" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 09: LAYER 3 7-RULE DECISION FLOWCHART ==================== -->
+        <g id="tier-9" class="svg-tier" onclick="goToStep(9)" style="cursor:pointer">
+          <rect x="20" y="2265" width="820" height="235" rx="16" fill="#180a10" stroke="#f43f5e" stroke-width="2"/>
+          <text x="40" y="2294" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="800">STAGE 09 • LAYER 3: 7-RULE DETERMINISTIC DECISION FLOWCHART</text>
+          <text x="40" y="2315" fill="#fda4af" font-family="Plus Jakarta Sans" font-size="12">The packet walks through 7 deterministic protocol checks to isolate the exact violated rule before taking action:</text>
+
+          <g id="s9-grid" transform="translate(45, 2334)" font-family="JetBrains Mono" font-size="10" text-anchor="middle">
+            <!-- Populated dynamically -->
+          </g>
+
+          <g transform="translate(45, 2392)" font-family="JetBrains Mono" text-anchor="middle">
+            <line x1="385" y1="0" x2="230" y2="38" stroke="#1e2e4d" stroke-width="1.5" stroke-dasharray="4 4"/>
+            <line x1="385" y1="0" x2="540" y2="38" stroke="#f43f5e" stroke-width="3" marker-end="url(#arrowRed)"/>
+
+            <rect x="65" y="40" width="330" height="44" rx="8" fill="#0d1629" stroke="#1e2e4d" opacity="0.4"/>
+            <text x="230" y="67" fill="#64748b" font-size="11">✔ Normal Traffic</text>
+
+            <rect x="415" y="40" width="330" height="44" rx="8" fill="#f43f5e" fill-opacity="0.25" stroke="#f43f5e" stroke-width="2"/>
+            <text id="s9-verdict" x="580" y="67" fill="#f43f5e" font-size="12" font-weight="800">✖ RULE #3 FAILED → QUARANTINE</text>
+          </g>
+        </g>
+
+        <line x1="430" y1="2500" x2="430" y2="2565" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+
+        <!-- ==================== STAGE 10: CLOSED-LOOP CONTAINMENT & RECOVERY ==================== -->
+        <g id="tier-10" class="svg-tier" onclick="goToStep(10)" style="cursor:pointer">
+          <rect x="20" y="2570" width="820" height="205" rx="16" fill="#090f1d" stroke="#f43f5e" stroke-width="2"/>
+          <text x="40" y="2598" fill="#f43f5e" font-family="JetBrains Mono" font-size="12" font-weight="700">STAGE 10 • CLOSED-LOOP ENFORCEMENT, QUARANTINE &amp; CHANNEL RECOVERY</text>
+
+          <g transform="translate(45, 2618)" font-family="JetBrains Mono" text-anchor="middle">
+            <rect x="0" y="0" width="240" height="125" rx="12" fill="#2b0c16" stroke="#f43f5e"/>
+            <text x="120" y="32" fill="#ffffff" font-size="12" font-weight="700">🗄️ SQLite Blacklist</text>
+            <text id="s10-db" x="120" y="56" fill="#f43f5e" font-size="10.5" font-weight="700">Rogue_X1 Quarantined</text>
+            <text x="120" y="76" fill="#94a3b8" font-size="9.5">security_alerts Logged</text>
+            <text x="120" y="98" fill="#64748b" font-size="9">Audit Trail Preserved</text>
+
+            <rect x="265" y="0" width="240" height="125" rx="12" fill="#0d1629" stroke="#fbbf24"/>
+            <text x="385" y="32" fill="#ffffff" font-size="12" font-weight="700">🛡️ Gateway / MAC Control</text>
+            <text id="s10-fw1" x="385" y="56" fill="#fbbf24" font-size="10" font-weight="700">UDP Drop Rule Applied</text>
+            <text id="s10-fw2" x="385" y="76" fill="#e2e8f0" font-size="9.5">LORA_MAC_SET_DUTY_CYCLE</text>
+            <text x="385" y="98" fill="#94a3b8" font-size="9">Policy-Gated Execution</text>
+
+            <rect x="530" y="0" width="240" height="125" rx="12" fill="#0d2620" stroke="#10b981"/>
+            <text x="650" y="32" fill="#ffffff" font-size="12" font-weight="700">📡 Network Restored</text>
+            <text x="650" y="56" fill="#10b981" font-size="10.5" font-weight="700">ALOHA Load G ≤ 0.08</text>
+            <text x="650" y="76" fill="#e2e8f0" font-size="9.5">Nodes 01, 03, 04 Protected</text>
+            <text x="650" y="98" fill="#10b981" font-size="9">Zero Collateral Disruption</text>
+          </g>
+        </g>
+
+      </svg>
+    </div>
+
+    <!-- RIGHT 4 COLUMNS: STICKY LIFECYCLE EXPLAINER -->
+    <aside class="lg:col-span-4 lg:sticky lg:top-20 space-y-4">
+      <div class="bg-console-panel border border-rose-500/40 rounded-2xl p-5 shadow-2xl">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-mono font-bold uppercase tracking-wider text-rose-400">📡 Packet Lifecycle Inspector</span>
+          <span id="narratorBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-rose-500/15 text-rose-400">Stage 1 / 10</span>
+        </div>
+        <h2 id="narratorTitle" class="text-lg font-extrabold text-white mb-2"></h2>
+        <p id="narratorSpeech" class="text-sm text-slate-300 leading-relaxed mb-4"></p>
+
+        <div class="bg-console-base border border-rose-500/30 rounded-xl p-3.5 mb-4">
+          <div class="text-[11px] font-mono uppercase text-rose-400 mb-1">Technical Proof &amp; Control Action</div>
+          <p id="narratorPoint" class="text-xs font-mono text-amber-300 leading-relaxed break-words"></p>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-console-border">
+          <button onclick="prevStep()" class="text-xs font-mono text-slate-400 hover:text-white">← Back</button>
+          <div class="flex gap-1" id="stepDots"></div>
+          <button onclick="nextStep()" class="text-xs font-mono text-rose-400 font-bold hover:text-rose-300">Next →</button>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    const SCENARIOS = {
+      dos: {
+        s3Desc: "After 1,041 normal packets, Node_02 is compromised (Rogue_X1) and begins firing rapid bursts every 42 ms.",
+        s3Node: "⚠️ Rogue_X1",
+        s3Mode: "Duty-Cycle DoS Flood",
+        s3Fcnt: "1043 (Rapid)",
+        s3Cadence: "Δt = 0.042 s",
+        s3CadSub: "350x Faster Than Normal",
+        s4Desc: "Uncoordinated Pure ALOHA cannot handle 51.5% duty-cycle bursts, driving channel load G to 1.85 and colliding with honest traffic.",
+        s4Rf: "-92 dBm / +3 dB",
+        s4Duty: "51.5% (> 1% Cap)",
+        s4Aloha: "G = 1.85 (Collapse)",
+        s4X: "✖ COLLISION FLOOD",
+        s5Gwa1: "Demodulator Load High",
+        s5Gwa2: "t_A = 100.000412000 s",
+        s5Tdoa: "|t_A − t_B| = 430.0 ns",
+        s5Var: "Jitter σ² = 12.0 ns (Local)",
+        s5Alert: false,
+        s7Iat: "Δt = 0.0420 s (!)",
+        s7Fcnt: "ΔFCnt = +1",
+        s7Vec: "[-92.0, +3.0, SF7, 0.042s,",
+        s8XgbSub: "Tree Split Triggered: Δt < 0.10s Branch",
+        s8Xgb: "Threat Probability: 99.2% (CRITICAL)",
+        s8Iso: "Anomaly Score: -0.34 (SEVERE OUTLIER)",
+        failedRuleIdx: 2,
+        s9Verdict: "✖ RULE #3 FAILED → QUARANTINE",
+        s10Db: "Rogue_X1 Quarantined",
+        s10Fw1: "UDP Drop Rule Applied",
+        s10Fw2: "LORA_MAC_SET_DUTY_CYCLE",
+        stages: [
+          { title: "1. Initial OTAA Onboarding", speech: "\"The node initially onboards legitimately via OTAA. In Stage 1, Node_02 completes a completely valid OTAA handshake and receives legitimate session keys.\"", point: "Proves why static join-time authentication cannot prevent post-join compromise." },
+          { title: "2. Normal Baseline Phase (1,041 Pkts)", speech: "\"During Stage 2, Node_02 transmits within normal baseline parameters for hours—sending 1 packet every 15 seconds. Our stateful tracker records this healthy baseline.\"", point: "Baseline learned: Δt = 15.00s, Duty Cycle = 0.34%, SNR = +8.0 dB." },
+          { title: "3. Behavioral Shift: Node Turns Rogue!", speech: "\"At Stage 3, behavioral deviation begins as Rogue_X1 (Rogue_X1) and suddenly begins transmitting every 42 milliseconds. Its AES-CMAC signature is still valid, so cryptography alone won't stop it.\"", point: "Behavioral shift detected: Inter-arrival time drops 350x (15s → 0.042s)." },
+          { title: "4. Air Interface & Pure ALOHA Collapse", speech: "\"Because LoRaWAN uses uncoordinated Pure ALOHA, a 51.5% duty-cycle flood pushes channel load G to 1.85—far past the 0.5 peak—causing red ✖ packet collisions for neighboring sensors.\"", point: "Violates IN865/RP002 1% duty-cycle limit and collapses ALOHA throughput." },
+          { title: "5. Multi-Gateway TDoA Geometry", speech: "\"Both Gateways A and B receive the burst with a 430 ns arrival difference (within the 1,804 ns speed-of-light limit), confirming the attacker is physically inside our local cell.\"", point: "TDoA confirms local physical presence; attack is volumetric rate abuse." },
+          { title: "6. IP Backhaul & Raw UDP :9999 Tap", speech: "\"Our raw UDP Port 9999 listener captures every single burst frame directly from Gateway A with zero socket drops before upstream filtering hides the flood.\"", point: "64KB OS socket buffer absorbs the spike without dropping telemetry." },
+          { title: "7. Layer 1 Stateful Delta Detection", speech: "\"Layer 1 compares incoming Δt (0.042s) against Stage 2's learned baseline (15.0s), flagging an immediate timing anomaly while M/M/1 queue utilization stays safe at ρ = 0.28.\"", point: "Stateful Δt comparison catches rate abuse on the second consecutive packet." },
+          { title: "8. Layer 2 Inside the ML Algorithms", speech: "\"In Layer 2, XGBoost's boosted trees split directly on the Δt < 0.10s branch (99.2% threat probability), while Isolation Forest isolates the point in a shallow tree path (-0.34).\"", point: "1.18 ms dual-model inference confirms severe statistical deviation." },
+          { title: "9. Layer 3 7-Rule Decision Flowchart", speech: "\"The packet walks through our 7 deterministic rules. Checks 1 and 2 pass, but Check #3 (Duty ≤ 1%) fails red—pinpointing the exact protocol violation.\"", point: "Deterministic rule mapping explains WHY the packet was flagged." },
+          { title: "10. Closed-Loop Quarantine & Recovery", speech: "\"Layer 3 blacklists Rogue_X1 in SQLite, applies an exact-match UDP firewall drop rule plus MAC duty-cycle cap, and restores Pure ALOHA channel load back below G ≤ 0.08.\"", point: "iptables -A INPUT -p udp --dport 9999 -m string --string 'Rogue_X1' -j DROP" }
+        ]
+      },
+      replay: {
+        s3Desc: "After 1,041 normal packets, an attacker replays an earlier captured packet with Frame Counter rolled back to FCnt = 0.",
+        s3Node: "⚠️ Rogue_X1",
+        s3Mode: "Frame Counter Replay",
+        s3Fcnt: "0 (ROLLBACK!)",
+        s3Cadence: "Δt = 2.150 s",
+        s3CadSub: "Normal Timing Cadence",
+        s4Desc: "At the radio layer, duty cycle (0.40%) and ALOHA load (G = 0.09) look completely normal—proving PHY metrics alone cannot catch replay attacks.",
+        s4Rf: "-89.5 dBm / +5.2 dB",
+        s4Duty: "0.40% (Within 1%)",
+        s4Aloha: "G = 0.09 (Nominal)",
+        s4X: "✖ STALE REPLAY FRAME",
+        s5Gwa1: "Duplicate Frame Heard",
+        s5Gwa2: "t_A = 100.000410000 s",
+        s5Tdoa: "|t_A − t_B| = 418.0 ns",
+        s5Var: "Jitter σ² = 15.0 ns (Local)",
+        s5Alert: false,
+        s7Iat: "Δt = 2.1500 s (OK)",
+        s7Fcnt: "ΔFCnt = -1041 (!)",
+        s7Vec: "[-89.5, +5.2, SF7, 2.15s,",
+        s8XgbSub: "Tree Split Triggered: ΔFCnt ≤ 0 Rollback",
+        s8Xgb: "Threat Probability: 98.6% (CRITICAL)",
+        s8Iso: "Anomaly Score: -0.29 (OUTLIER)",
+        failedRuleIdx: 1,
+        s9Verdict: "✖ RULE #2 FAILED → REPLAY BLOCKED",
+        s10Db: "Rogue_X1 Quarantined",
+        s10Fw1: "Replay Frame Dropped",
+        s10Fw2: "LORA_MAC_REJECT_DEVICE",
+        stages: [
+          { title: "1. Initial OTAA Onboarding", speech: "\"Node_02 joins legitimately via OTAA and receives valid session keys.\"", point: "Session keys are valid; the threat is an over-the-air frame replay." },
+          { title: "2. Normal Baseline Phase (1,041 Pkts)", speech: "\"Over 1,041 packets, our state tracker records monotonic Frame Counter progression from 0 up to 1041.\"", point: "Expected invariant: FCnt(t) > FCnt(t−1) strictly." },
+          { title: "3. Behavioral Shift: Counter Rollback!", speech: "\"At Stage 3, an attacker re-transmits an old recorded frame with FCnt = 0—attempting to inject stale sensor readings or desynchronize the session.\"", point: "Incoming FCnt (0) < Last Accepted FCnt (1041)." },
+          { title: "4. Stealthy Radio Footprint", speech: "\"Duty cycle (0.40%) and ALOHA load (G = 0.09) look completely healthy on the air interface. Radio physics alone cannot catch a replay.\"", point: "Demonstrates why combining PHY telemetry with MAC sequence state is mandatory." },
+          { title: "5. Multi-Gateway Reception", speech: "\"Both Gateways A and B receive the replayed packet with normal arrival timing (418 ns).\"", point: "Passes spatial checks; moves upstream to Layer 1 state tracking." },
+          { title: "6. Dual Backhaul Interception", speech: "\"UDP :9999 and MQTT :1883 forward the frame header fields (DevAddr, FCnt) to Layer 1 without needing payload decryption.\"", point: "Monitors MAC freshness using plaintext header fields." },
+          { title: "7. Layer 1 Counter Rollback Calculation", speech: "\"Layer 1 computes ΔFCnt = 0 − 1041 = -1041, immediately flagging a monotonic sequence violation.\"", point: "Stateful ΔFCnt tracking catches replay attacks on the very first repeated frame." },
+          { title: "8. Layer 2 Inside the ML Algorithms", speech: "\"XGBoost splits on the negative ΔFCnt feature (98.6% threat confidence), corroborated by Isolation Forest (-0.29).\"", point: "Correlates counter rollback with subtle RSSI/SNR shifts." },
+          { title: "9. Layer 3 7-Rule Decision Flowchart", speech: "\"In the 7-check decision tree, Check #2 (Monotonic FCnt) fails red, isolating Frame Counter Replay.\"", point: "Clear root cause: Check #2 Monotonic Sequence Violation." },
+          { title: "10. Device Rejection & Quarantine", speech: "\"Layer 3 logs the incident in SQLite and emits LORA_MAC_REJECT_DEVICE to block the replayed session.\"", point: "LORA_MAC_REJECT_DEVICE --dev-eui Rogue_X1 --reason REPLAY_DETECTED" }
+        ]
+      },
+      tdoa: {
+        s3Desc: "After 1,041 normal packets, stolen session keys are relayed via an out-of-region proxy (Sybil_Node) with valid FCnt = 1042!",
+        s3Node: "⚠️ Sybil_Node",
+        s3Mode: "Out-of-Region Proxy Relay",
+        s3Fcnt: "1042 (Valid +1!)",
+        s3Cadence: "Δt = 14.90 s",
+        s3CadSub: "Mimics Normal Timing",
+        s4Desc: "Duty cycle (0.35%) and ALOHA load (G = 0.07) are completely normal—so single-gateway monitors would be fooled.",
+        s4Rf: "-88.0 dBm / +7.5 dB",
+        s4Duty: "0.35% (Within 1%)",
+        s4Aloha: "G = 0.07 (Nominal)",
+        s4X: "✖ SPATIAL GEOMETRY SPOOF",
+        s5Gwa1: "t_A = 100.000100000 s",
+        s5Gwa2: "Baseline: 540.8 m",
+        s5Tdoa: "|t_A − t_B| = 2,229 ns (!)",
+        s5Var: "Jitter σ² = 425.0 ns (> 350ns!)",
+        s5Alert: true,
+        s7Iat: "Δt = 14.900 s (OK)",
+        s7Fcnt: "ΔFCnt = +1 (OK)",
+        s7Vec: "[-88.0, +7.5, SF7, 14.90s,",
+        s8XgbSub: "Tree Split Triggered: TDoA σ² > 350.0 ns",
+        s8Xgb: "Threat Probability: 96.4% (CRITICAL)",
+        s8Iso: "Anomaly Score: -0.31 (OUTLIER)",
+        failedRuleIdx: 6,
+        s9Verdict: "✖ RULE #7 FAILED → SPOOF BLOCKED",
+        s10Db: "Sybil_Node Revoked",
+        s10Fw1: "Proxy Stream Dropped",
+        s10Fw2: "LORA_MAC_REVOKE_SESSION",
+        stages: [
+          { title: "1. Initial OTAA Onboarding", speech: "\"Node_02 joins legitimately via OTAA and holds valid cryptographic keys.\"", point: "Sets up our key-compromise / wormhole relay test case." },
+          { title: "2. Normal Baseline Phase (1,041 Pkts)", speech: "\"Over 1,041 packets, multi-gateway TDoA spread stays tightly bounded around ~412 ns (variance 18 ns).\"", point: "Baseline spatial fingerprint established across Gateways A and B." },
+          { title: "3. Behavioral Shift: Out-of-Region Proxy!", speech: "\"At Stage 3, an attacker compromises the node's keys and relays frames from outside our physical zone. Notice FCnt (1042) and MIC are 100% valid!\"", point: "Valid cryptographic credentials do not prove physical colocation." },
+          { title: "4. Stealthy Air Interface", speech: "\"The attacker mimics normal 15-second intervals and 0.35% duty cycle so they won't trigger volumetric alarms.\"", point: "Stealthy impersonation requires physical speed-of-light verification." },
+          { title: "5. Speed-of-Light TDoA Violation!", speech: "\"Gateways A and B are 540.8 m apart, so radio waves take at most 1,804 ns between them. Here, arrival spread jumps to 2,229 ns (variance 425 ns)—physically impossible for a local sensor!\"", point: "|t_A − t_B| > ||r_A − r_B||₂ / c falsifies transmitter location." },
+          { title: "6. Raw UDP :9999 Multi-Gateway Capture", speech: "\"UDP :9999 preserves the nanosecond timestamps from both Gateways A and B before Network Server deduplication discards the second copy.\"", point: "Why raw gateway UDP ingestion is mandatory for TDoA security." },
+          { title: "7. Layer 1 Cross-Gateway Correlation", speech: "\"Layer 1 matches both gateway receptions by (DevAddr, FCnt) and flags the TDoA variance spike (425.0 ns > 350.0 ns limit).\"", point: "Cross-gateway correlation turns nanosecond timing into a physical security feature." },
+          { title: "8. Layer 2 Inside the ML Algorithms", speech: "\"XGBoost and Isolation Forest flag the spatial outlier at 96.4% threat probability in 1.18 ms.\"", point: "Detects physical spoofing even when MAC headers are valid." },
+          { title: "9. Layer 3 7-Rule Decision Flowchart", speech: "\"Protocol checks 1 through 6 pass; Check #7 (TDoA Spatial Bound) is the exact rule that turns red and catches the proxy relay.\"", point: "Proves the necessity of our 7-layer cascade." },
+          { title: "10. Session Revocation & Quarantine", speech: "\"Layer 3 revokes the compromised session and drops Sybil_Node at the gateway firewall without touching encryption keys.\"", point: "LORA_MAC_REVOKE_SESSION --dev-eui Sybil_Node --reason TDOA_VIOLATION" }
+        ]
+      },
+      jamming: {
+        s3Desc: "An active RF jammer injects broadband noise on 865.0625 MHz to drown out legitimate sensor uplinks.",
+        s3Node: "⚠️ Jammer_01",
+        s3Mode: "RF Barrage Noise Flood",
+        s3Fcnt: "150 (Corrupted)",
+        s3Cadence: "Continuous Noise",
+        s3CadSub: "98% Channel Occupancy",
+        s4Desc: "Driving SNR down to -12.0 dB collapses Shannon channel capacity C = B·log₂(1 + SNR) below the receiver's demodulation threshold.",
+        s4Rf: "-122 dBm / -12 dB (!)",
+        s4Duty: "98.0% (Jamming)",
+        s4Aloha: "SNR Collapse (< -8dB)",
+        s4X: "✖ DEMODULATOR SATURATION",
+        s5Gwa1: "SNR Collapse: -12.0 dB",
+        s5Gwa2: "RSSI: -122.0 dBm",
+        s5Tdoa: "Gateway B: Packet Lost",
+        s5Var: "Asymmetric Link Outage",
+        s5Alert: true,
+        s7Iat: "Δt = 0.0800 s",
+        s7Fcnt: "SNR Drift: -20.5 dB (!)",
+        s7Vec: "[-122.0, -12.0, SF7, 0.08s,",
+        s8XgbSub: "Tree Split Triggered: SNR < -8.0 dB",
+        s8Xgb: "Threat Probability: 94.8% (HIGH)",
+        s8Iso: "Anomaly Score: -0.38 (OUTLIER)",
+        failedRuleIdx: 3,
+        s9Verdict: "✖ RULE #4 FAILED → CHANNEL HOP",
+        s10Db: "Channel 865.06 Excluded",
+        s10Fw1: "LinkADRReq (CID 0x03)",
+        s10Fw2: "Shift Honest Nodes to SF12",
+        stages: [
+          { title: "1. Initial OTAA Onboarding", speech: "\"Legitimate sensors are active on the 865.0625 MHz sub-band after OTAA activation.\"", point: "Sets up physical-layer denial-of-service scenario." },
+          { title: "2. Normal Baseline Phase", speech: "\"Under healthy conditions, gateways receive uplinks at +8.0 dB SNR with clean demodulation.\"", point: "Baseline link margin established." },
+          { title: "3. Behavioral Shift: RF Jammer Activated", speech: "\"At Stage 3, Jammer_01 floods the 865.0625 MHz carrier with continuous noise to block sensor uplinks.\"", point: "Physical layer attack targeting receiver sensitivity." },
+          { title: "4. Shannon-Hartley Capacity Collapse", speech: "\"The red ✖ marker shows Demodulator Saturation. SNR plunges to -12.0 dB, collapsing Shannon channel capacity C = B·log₂(1 + SNR) so frames fail demodulation.\"", point: "Direct application of Shannon's noisy-channel capacity limit." },
+          { title: "5. Asymmetric Multi-Gateway Outage", speech: "\"Gateway B loses the packet completely while Gateway A logs -122 dBm RSSI and -12 dB SNR.\"", point: "Asymmetric reception drop pinpoints localized RF interference." },
+          { title: "6. Raw Concentrator Telemetry via UDP :9999", speech: "\"UDP :9999 captures the degraded radio noise-floor metrics directly from Gateway A's concentrator.\"", point: "Real-time visibility into physical radio health." },
+          { title: "7. Layer 1 RF Drift Calculation", speech: "\"Layer 1 compares incoming -12.0 dB SNR against the +8.5 dB baseline, registering a 20.5 dB sudden drop.\"", point: "Tracks both timing state and radio link quality." },
+          { title: "8. Layer 2 Inside the ML Algorithms", speech: "\"XGBoost and Isolation Forest score the RF anomaly at 94.8% High severity in 1.18 ms.\"", point: "Rapid physical anomaly detection." },
+          { title: "9. Layer 3 7-Rule Decision Flowchart", speech: "\"Check #4 (SNR/RSSI Baseline) turns red, diagnosing active RF Jamming rather than normal packet collision.\"", point: "Clear root-cause separation between collisions and jamming." },
+          { title: "10. Adaptive Channel Hopping (LinkADRReq)", speech: "\"Instead of just dropping packets, Layer 3 excludes the jammed channel and issues a standard LoRaWAN LinkADRReq (CID 0x03) command to shift honest nodes to higher Spreading Factor / clean frequencies.\"", point: "LinkADRReq (CID 0x03) --target-sf 12 --channel-exclude 865.0625MHz" }
+        ]
+      }
+    };
+
+    const RULES = [
+      "1. Session",
+      "2. FCnt (+1)",
+      "3. Duty ≤1%",
+      "4. SNR/RSSI",
+      "5. SF / ADR",
+      "6. IN865 Ch",
+      "7. TDoA Bound"
+    ];
+
+    let currentMode = 'dos';
+    let currentStep = 1;
+    let playTimer = null;
+
+    function renderRules(failedIdx) {
+      const container = document.getElementById('s9-grid');
+      container.innerHTML = RULES.map((r, idx) => {
+        const x = idx * 111;
+        const w = idx === 6 ? 104 : 102;
+        if (idx === failedIdx) {
+          return `<g transform="translate(${x}, 0)">
+            <rect x="0" y="0" width="${w}" height="58" rx="8" fill="#2b0c16" stroke="#f43f5e" stroke-width="2"/>
+            <text x="${w/2}" y="24" fill="#ffffff" font-weight="700">${r}</text>
+            <text x="${w/2}" y="42" fill="#f43f5e" font-weight="800">✖ FAIL</text>
+          </g>`;
+        }
+        return `<g transform="translate(${x}, 0)">
+          <rect x="0" y="0" width="${w}" height="58" rx="8" fill="#0d2620" stroke="#10b981" opacity="0.75"/>
+          <text x="${w/2}" y="24" fill="#e2e8f0">${r}</text>
+          <text x="${w/2}" y="42" fill="#10b981" font-weight="700">✔ PASS</text>
+        </g>`;
+      }).join('');
+    }
+
+    function applyScenario() {
+      currentMode = document.getElementById('attackSelector').value;
+      const s = SCENARIOS[currentMode];
+
+      document.getElementById('s3-desc').textContent = s.s3Desc;
+      document.getElementById('s3-node').textContent = s.s3Node;
+      document.getElementById('s3-mode').textContent = s.s3Mode;
+      document.getElementById('s3-fcnt').textContent = s.s3Fcnt;
+      document.getElementById('s3-cadence').textContent = s.s3Cadence;
+      document.getElementById('s3-cadsub').textContent = s.s3CadSub;
+
+      document.getElementById('s4-desc').textContent = s.s4Desc;
+      document.getElementById('s4-rf').textContent = s.s4Rf;
+      document.getElementById('s4-duty').textContent = s.s4Duty;
+      document.getElementById('s4-aloha').textContent = s.s4Aloha;
+      document.getElementById('s4-x').textContent = s.s4X;
+
+      document.getElementById('s5-gwa1').textContent = s.s5Gwa1;
+      document.getElementById('s5-gwa2').textContent = s.s5Gwa2;
+      document.getElementById('s5-tdoa').textContent = s.s5Tdoa;
+      document.getElementById('s5-var').textContent = s.s5Var;
+      const s5Box = document.getElementById('s5-box');
+      if (s.s5Alert) {
+        s5Box.setAttribute('fill', '#2b0c16');
+        s5Box.setAttribute('stroke', '#f43f5e');
+        document.getElementById('s5-tdoa').setAttribute('fill', '#f43f5e');
+        document.getElementById('s5-var').setAttribute('fill', '#fda4af');
+      } else {
+        s5Box.setAttribute('fill', '#0d1629');
+        s5Box.setAttribute('stroke', '#3b82f6');
+        document.getElementById('s5-tdoa').setAttribute('fill', '#ffffff');
+        document.getElementById('s5-var').setAttribute('fill', '#10b981');
+      }
+
+      document.getElementById('s7-iat').textContent = s.s7Iat;
+      document.getElementById('s7-fcnt').textContent = s.s7Fcnt;
+      document.getElementById('s7-vec').textContent = s.s7Vec;
+
+      document.getElementById('s8-xgb-sub').textContent = s.s8XgbSub;
+      document.getElementById('s8-xgb').textContent = s.s8Xgb;
+      document.getElementById('s8-iso').textContent = s.s8Iso;
+
+      renderRules(s.failedRuleIdx);
+      document.getElementById('s9-verdict').textContent = s.s9Verdict;
+
+      document.getElementById('s10-db').textContent = s.s10Db;
+      document.getElementById('s10-fw1').textContent = s.s10Fw1;
+      document.getElementById('s10-fw2').textContent = s.s10Fw2;
+
+      updateUI(false);
+    }
+
+    function updateUI(scroll = true) {
+      const stageObj = SCENARIOS[currentMode].stages[currentStep - 1];
+      document.getElementById('stepCounter').textContent = currentStep;
+      document.getElementById('narratorBadge').textContent = `Stage ${currentStep} / 10`;
+      document.getElementById('narratorTitle').textContent = stageObj.title;
+      document.getElementById('narratorSpeech').textContent = stageObj.speech;
+      document.getElementById('narratorPoint').textContent = stageObj.point;
+
+      document.getElementById('btnPrev').disabled = currentStep === 1;
+      document.getElementById('btnNext').disabled = currentStep === 10;
+
+      for (let i = 1; i <= 10; i++) {
+        const tier = document.getElementById(`tier-${i}`);
+        tier.classList.remove('active', 'active-green', 'visited');
+        if (i === currentStep) {
+          tier.classList.add(i <= 2 ? 'active-green' : 'active');
+        } else if (i < currentStep) {
+          tier.classList.add('visited');
+        }
+      }
+
+      document.getElementById('stepDots').innerHTML = Array.from({ length: 10 }, (_, i) => {
+        const s = i + 1;
+        const activeColor = s <= 2 ? 'bg-emerald-400' : 'bg-rose-500';
+        return `<button onclick="goToStep(${s})" class="w-2 h-2 rounded-full transition ${s === currentStep ? activeColor + ' scale-125' : (s < currentStep ? 'bg-rose-500/40' : 'bg-slate-700')}"></button>`;
+      }).join('');
+
+      if (scroll) {
+        document.getElementById(`tier-${currentStep}`).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function nextStep() {
+      if (currentStep < 10) { currentStep++; updateUI(true); }
+      else if (playTimer) togglePlay();
+    }
+    function prevStep() { if (currentStep > 1) { currentStep--; updateUI(true); } }
+    function goToStep(s) { currentStep = s; updateUI(true); }
+    function resetFlow() { if (playTimer) togglePlay(); currentStep = 1; updateUI(true); }
+    function togglePlay() {
+      const btn = document.getElementById('btnPlay');
+      if (playTimer) {
+        clearInterval(playTimer); playTimer = null;
+        btn.textContent = '▶ Play Auto';
+        btn.classList.replace('bg-amber-400', 'bg-rose-500');
+      } else {
+        if (currentStep === 10) currentStep = 1;
+        updateUI(true);
+        btn.textContent = '⏸ Pause';
+        btn.classList.replace('bg-rose-500', 'bg-amber-400');
+        playTimer = setInterval(nextStep, 3500);
+      }
+    }
+
+    applyScenario();
+  </script>
+</body>
+</html>
+
+
+
+
