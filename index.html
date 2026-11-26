@@ -43,7 +43,7 @@
         </div>
         <div class="btn-group">
           <button id="btn-stream" class="ctrl btn-primary" onclick="toggleStream()">Pause Stream</button>
-          <button class="ctrl" onclick="resetAll()">Reset</button>
+          <button class="ctrl" onclick="exportCSV()">Export CSV</button><button class="ctrl" onclick="resetAll()">Reset</button>
         </div>
       </div>
 
@@ -622,9 +622,12 @@
         const box = document.getElementById("alert-panel");
         box.className = "alert-box flagged";
         box.innerHTML = `
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
             <strong style="color:#ffffff;">${pkt.device} — ${pkt.label}</strong>
-            <span class="tag tag-attack">Risk Score: ${pkt.risk} / 100 (${pkt.level})</span>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <span class="tag tag-amber" id="quiet-tracker">Incident Open • Quiet Uplinks: 0 / 3</span>
+              <span class="tag tag-attack">Risk Score: ${pkt.risk} / 100 (${pkt.level})</span>
+            </div>
           </div>
           <div>${pkt.summary}</div>
           <div class="pills">
@@ -635,6 +638,11 @@
           </div>`;
       } else {
         normalCount++; dev.quiet++;
+        const qt = document.getElementById("quiet-tracker");
+        if (qt && dev.open) {
+          qt.innerText = dev.quiet >= 3 ? "Incident Closed (3/3 Quiet Uplinks)" : `Incident Open • Quiet Uplinks: ${dev.quiet} / 3`;
+          if (dev.quiet >= 3) qt.className = "tag tag-normal";
+        }
         if (dev.quiet >= 3) dev.open = false;
       }
 
@@ -979,6 +987,17 @@
     function roguePrev() { if (rogueStep > 0) { rogueStep--; renderRogue(); } }
     function rogueReset() { rogueStep = 0; renderRogue(); }
 
+    function exportCSV() {
+      if (!logs.length) return;
+      const headers = ["Time,Device,RSSI_dBm,SNR_dB,SF,Airtime_ms,Interval_s,FCnt,Risk_Score,Verdict"];
+      const rows = logs.map(p => `${p.time},${p.device},${p.rssi},${p.snr},${p.sf},${p.airtime},${p.iat},${p.fcnt},${p.risk},${p.label}`);
+      const blob = new Blob([headers.concat(rows).join("\n")], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "lorawan_anomaly_audit_log.csv";
+      a.click();
+    }
+
     window.onload = () => {
       initCharts();
       stepStream();
@@ -989,3 +1008,4 @@
   </script>
 </body>
 </html>
+
